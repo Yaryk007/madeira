@@ -92,6 +92,31 @@ Removing an entry never removes the game's files or saves.
   Without the key, `swap-mode = 2` in madeira.cfg means broad and the picker
   shows it; choosing large allocations then writes `classic` explicitly.
 
+## Console home
+
+`ConsoleHome.swift`: a full-screen, controller-first home in place of the
+library's tab view, on by default (`madeiraConsoleHome`; Settings › Interface ›
+Console home in either front end switches between the two at once). No status
+bar, navigation bar or home indicator. A top bar of tabs — Home, Library, Steam
+(when Steam or Dock is available) and Settings — with JIT, controller, battery
+and clock; a hint bar of the buttons that act at the bottom.
+
+- **Home**: the focused game's art blurred behind a hero (title, badges, last
+  played, Play and Details) and a carousel of covers, last played first:
+  the games you added, installed Steam games and the Desktop, then Add game.
+- **Library**: the same games in a grid.
+- **Steam**: the library's Steam section (sign-in, downloads), by touch.
+- **Settings**: categories on the left, their options on the right
+  (Controller, Touch & Mouse, Interface, System & JIT, Steam, Games & Saves,
+  About); the library's own sections (JIT setup, Memory & sync, All settings,
+  Steam, .NET, Saves, Credits) open as sheets.
+
+Controller: D-pad or left stick moves (held, it repeats), A plays (a Steam
+game opens Game details, which checks its download and sign-in first), X opens
+Game details, Y adds a game, LB/RB change tab, Start opens Settings, B goes back.
+In Settings, left/right adjusts a choice or slider and A toggles or opens. By
+touch, a tap focuses a game and a second tap plays it.
+
 ## Game details
 
 Tapping a game opens its details page; it stays up until the session's

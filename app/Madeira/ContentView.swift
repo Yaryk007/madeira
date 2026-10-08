@@ -1186,6 +1186,10 @@ final class InputSettings: ObservableObject {
     /// "Right stick controls mouse" (HardwareInput.swift, PadStickMouse). Off by
     /// default: a program that reads the controller already gets the stick.
     @Published var padRightStickMouse = false { didSet { save() } }
+    /// Settings › Controller › "Controller as keyboard & mouse": games without
+    /// their own Controller choice (LibraryEntry.controllerMode nil) start in
+    /// keyboard-and-mouse mode (PadKeyboardMouse). Off by default.
+    @Published var padKeyboardMouseDefault = false { didSet { save() } }
 
     /// didSet fires for assignments made in init() because the properties are
     /// already initialised by then; without this the first launch would write
@@ -1209,6 +1213,7 @@ final class InputSettings: ObservableObject {
             sensMouse = j["sensMouse"] as? Double ?? 1.0
             ignoreTouchesWithMouse = j["ignoreTouchesWithMouse"] as? Bool ?? true
             padRightStickMouse = j["padRightStickMouse"] as? Bool ?? false
+            padKeyboardMouseDefault = j["padKeyboardMouseDefault"] as? Bool ?? false
         }
         loading = false
         madeira_set_diag_enabled(diagnostics ? 1 : 0)   // push the restored value down
@@ -1219,6 +1224,7 @@ final class InputSettings: ObservableObject {
         let j: [String: Any] = ["relative": relative, "sensAbs": sensAbs, "sensRel": sensRel, "diagnostics": diagnostics,
                                 "sensMouse": sensMouse, "ignoreTouchesWithMouse": ignoreTouchesWithMouse,
                                 "padRightStickMouse": padRightStickMouse,
+                                "padKeyboardMouseDefault": padKeyboardMouseDefault,
                                 "touchMode": touchMode]
         guard let d = try? JSONSerialization.data(withJSONObject: j) else { return }
         try? d.write(to: Self.url, options: .atomic)
@@ -1254,6 +1260,8 @@ struct ContentView: View {
     /// replaces both bodies below, and a running library session gets the
     /// full-screen `sessionBody`.
     @ObservedObject private var library = LibraryModel.shared
+    /// The console home (ConsoleHome.swift) in place of the library; Settings in either turns it off or on.
+    @AppStorage(ConsoleHome.key) private var consoleHome = true
     /// "Use New Interface" (actionButtons) applies at the next start.
     @State private var showFrontendRestart = false
 
@@ -1278,6 +1286,9 @@ struct ContentView: View {
                 if library.enabled && library.current != nil {
                     sessionBody
                         .navigationBarHidden(true)
+                } else if library.enabled && consoleHome {
+                    ConsoleHomeView(play: launchLibraryEntry, enableJIT: enableJIT,
+                                    startDock: { startDock($0, compactPool: $1) })
                 } else if library.enabled {
                     LibraryView(play: launchLibraryEntry, enableJIT: enableJIT,
                                 startDock: { startDock($0, compactPool: $1) })

@@ -74,8 +74,8 @@ enum BuildStamp {
 /// 1's physical pad) so there is no second timer. While the library owns input
 /// (no session, or the in-game menu is open) GamepadInput publishes a neutral
 /// pad to Windows. D-pad or left stick moves the focus, A opens, B goes back,
-/// Y adds a game, a shoulder switches tabs; in a session Back+Start opens the
-/// menu. MADEIRA_FRONTEND_CONTROLLER=0 turns navigation off.
+/// X shows details (console home), Y adds a game, LB/RB switch tabs; in a
+/// session Back+Start opens the menu. MADEIRA_FRONTEND_CONTROLLER=0 turns navigation off.
 final class LibraryController: ObservableObject, @unchecked Sendable {
     static let shared = LibraryController()
     @Published var connected = false
@@ -85,6 +85,11 @@ final class LibraryController: ObservableObject, @unchecked Sendable {
     private var owns = false
     private var last: UInt16 = 0
     private var announced = false
+    /// Hold-to-repeat of a direction while the library owns input (the console
+    /// home's carousel and settings list), as a console's menus do.
+    private var heldDirections: UInt16 = 0
+    private var heldSince: TimeInterval = 0
+    private var lastRepeat: TimeInterval = 0
     private let allowed = MadeiraConfig.flag("MADEIRA_FRONTEND_CONTROLLER")
     var ownsInput: Bool { lock.lock(); defer { lock.unlock() }; return enabled && owns }
     func configure(enabled: Bool, ownsInput: Bool) {
@@ -99,7 +104,12 @@ final class LibraryController: ObservableObject, @unchecked Sendable {
             if lx < -16000 { buttons |= 4 }; if lx > 16000 { buttons |= 8 }
             if ly > 16000 { buttons |= 1 }; if ly < -16000 { buttons |= 2 }
         }
-        let pressed = buttons & ~last; last = buttons
+        var pressed = buttons & ~last; last = buttons
+        if owns {
+            let directions = buttons & 0xF, now = ProcessInfo.processInfo.systemUptime
+            if directions != heldDirections { heldDirections = directions; heldSince = now; lastRepeat = now }
+            else if directions != 0, pressed == 0, now - heldSince > 0.45, now - lastRepeat > 0.11 { lastRepeat = now; pressed = directions }
+        }
         let own = owns, announce = !announced; announced = true
         lock.unlock()
         if announce { DispatchQueue.main.async { self.connected = true; fputs("[frontend-controller] navigation active\n", stderr) } }
@@ -107,7 +117,7 @@ final class LibraryController: ObservableObject, @unchecked Sendable {
         // Reserve the Back+Start chord in gameplay, leaving ordinary Start intact.
         if !own, buttons & 0x30 == 0x30, pressed & 0x30 != 0 { command = "menu" }
         if own {
-            for (mask, name): (UInt16, String) in [(1, "up"), (2, "down"), (4, "left"), (8, "right"), (0x1000, "accept"), (0x2000, "back"), (0x8000, "add"), (0x10, "menu"), (0x100, "tab"), (0x200, "tab")] {
+            for (mask, name): (UInt16, String) in [(1, "up"), (2, "down"), (4, "left"), (8, "right"), (0x1000, "accept"), (0x2000, "back"), (0x4000, "x"), (0x8000, "add"), (0x10, "menu"), (0x100, "tabPrev"), (0x200, "tab")] {
                 if pressed & mask != 0 { command = name; break }
             }
         }
@@ -606,6 +616,20 @@ final class LibraryModel: ObservableObject {
     @Published var controllerMode: String? {
         didSet { if oldValue != controllerMode { applyControllerMode() } }
     }
+    /// The game's stored Controller choice at the session's start; saving keeps it
+    /// while the session runs what it resolves to, so a game left on the default
+    /// follows a later change of Settings › Controller.
+    private var sessionStoredControllerMode: String?
+    /// A stored Controller choice with Settings › Controller's default applied: no
+    /// choice (nil) is keyboard and mouse while "Controller as keyboard & mouse"
+    /// is on; "xinput" is the game's own support, chosen explicitly.
+    static func effectiveControllerMode(_ stored: String?) -> String? {
+        switch stored {
+        case nil, "": return InputSettings.shared.padKeyboardMouseDefault ? "keys" : nil
+        case "xinput": return nil
+        default: return stored
+        }
+    }
     /// The session's binds table (LibraryEntry.controllerBinds); a change rebuilds
     /// the driver's bindings at once, so the binds page is live.
     @Published var controllerBinds: [String: ControlAction] = [:] {
@@ -1008,7 +1032,8 @@ final class LibraryModel: ObservableObject {
         controls.sizeScale = min(max(entry.controlSize ?? 1, 0.5), 2)
         controllerBinds = GamepadInput.keyboardMouseAvailable ? (entry.controllerBinds ?? [:]) : [:]
         padMouseVertical = GamepadInput.keyboardMouseAvailable ? (entry.padMouseVertical ?? 1) : 1
-        controllerMode = GamepadInput.keyboardMouseAvailable ? entry.controllerMode : nil
+        sessionStoredControllerMode = entry.controllerMode
+        controllerMode = GamepadInput.keyboardMouseAvailable ? Self.effectiveControllerMode(entry.controllerMode) : nil
         applyControllerMode()
         MetalHostView.shared.isHidden = false
         ProMotionIntent.apply(mode: entry.effectiveFPSMode)
@@ -1126,7 +1151,13 @@ final class LibraryModel: ObservableObject {
             entry.fpsMode = fpsMode; entry.performance = performance
             entry.overlayFields = overlayFields
             entry.controlOpacity = opacity; entry.controlSize = controls.sizeScale
-            if GamepadInput.keyboardMouseAvailable { entry.controllerMode = controllerMode }
+            if GamepadInput.keyboardMouseAvailable {
+                if controllerMode != Self.effectiveControllerMode(sessionStoredControllerMode) {
+                    // Changed in the session: stored explicitly ("xinput" when the default would be keys).
+                    sessionStoredControllerMode = controllerMode ?? (InputSettings.shared.padKeyboardMouseDefault ? "xinput" : nil)
+                }
+                entry.controllerMode = sessionStoredControllerMode
+            }
             if GamepadInput.keyboardMouseAvailable { entry.controllerBinds = controllerBinds.isEmpty ? nil : controllerBinds }
             if GamepadInput.keyboardMouseAvailable { entry.padMouseVertical = padMouseVertical == 1 ? nil : padMouseVertical }
             // The in-game Aspect & scaling choice sticks to the game. MADEIRA_SESSION_TOOLS=0
@@ -2409,6 +2440,8 @@ struct LibraryView: View {
     @State private var settingsSheet: SettingsSheet?
     @State private var settingsRefresh = 0
     @AppStorage("madeiraLibraryLayout") private var layout = "cards"
+    /// The full-screen console home (ConsoleHome.swift) in place of this library.
+    @AppStorage(ConsoleHome.key) private var consoleHome = true
     @AppStorage("madeiraLibrarySort") private var sort = "played"
     @AppStorage("madeiraLibraryGroup") private var group = "platform"
     @AppStorage("madeiraLibraryCollapsedGroups") private var collapsedGroups = ""
@@ -2498,7 +2531,7 @@ struct LibraryView: View {
         .onAppear { GlassSkin.shared.start() }
         .onDisappear { GlassSkin.shared.stop() }
         .onReceive(controller.commands) { command in
-            if selected == nil, !browser, !onboarding.presented, command == "tab" { switchTab(to: 1 - tab) }
+            if selected == nil, !browser, !onboarding.presented, command == "tab" || command == "tabPrev" { switchTab(to: 1 - tab) }
         }
     }
     @ToolbarContentBuilder private var libraryToolbar: some ToolbarContent {
@@ -2582,13 +2615,14 @@ struct LibraryView: View {
                     Text("Flowing chrome on the bars and the Desktop button. Off, they use the system's Liquid Glass.")
                 }
             }
-            if settingsShow("interface", "developer") {
+            if settingsShow("interface", "developer", "console", "controller", "full screen") {
                 Section {
+                    Toggle("Console home", isOn: $consoleHome)
                     Toggle("Use developer interface", isOn: Binding(get: { developerUI }, set: { on in
                         developerUI = on; FrontendChoice.choose(new: !on); restartNotice = true
                     }))
                 } header: { Text("Interface") } footer: {
-                    Text("The developer interface is Madeira's original diagnostic screen. The change applies after Madeira restarts.")
+                    Text("Console home is the full-screen, controller-first home. The developer interface is Madeira's original diagnostic screen; that change applies after Madeira restarts.")
                 }
             }
             // Search: the matching options of All settings, editable here.
@@ -2597,19 +2631,7 @@ struct LibraryView: View {
             }
             // Credits, last on the Settings page.
             if settingsShow("credits", "thanks", "Will Faust", "Nick", "125hz", "Jfishin", "Jesse", "JesseLovelace", "Dan Perks", "danperks", "bahacan16", "spitefulowl", "meshoklv", "TheHadesc") {
-                Section {
-                    MadeiraCredit(name: "Will Faust", handle: "willfaust", role: "Created Madeira")
-                    MadeiraCredit(name: "Nick", handle: "125hz", role: "32-bit game support, the game library and Madeira Dock")
-                    MadeiraCredit(name: "Jfishin", handle: "Jfishin", role: "The original native Steam sign-in, library and downloads")
-                    MadeiraCredit(name: "Jesse", handle: "JesseLovelace", role: "Steam Cloud saves, faster game launches, and fixes that let more games run")
-                    MadeiraCredit(name: "Dan Perks", handle: "danperks", role: "In-app JIT without StikDebug, and pairing without a computer")
-                    MadeiraCredit(name: "bahacan16", handle: "bahacan16", role: "Direct3D 12 and DXMT fixes, game launcher windows, per-game settings, PlayStation controllers, and save backups")
-                    MadeiraCredit(name: "spitefulowl", handle: "spitefulowl", role: "Wine and FEX runtime fixes, DXMT texture and memory fixes, audio, the swap tier, and library launch options")
-                    MadeiraCredit(name: "meshoklv", handle: "meshoklv", role: "Controller fixes for games that ship their own XInput or need focus, touch taps that stay off the mouse, and a crash-guard fix")
-                    MadeiraCredit(name: "TheHadesc", handle: "TheHadesc", role: "Madeira Dock starts for games whose Steam launch entries do not start at zero, and a touch gamepad that survives the in-game keyboard")
-                } header: { Text("Credits") } footer: {
-                    Text("Madeira is built on Wine, FEX-Emu, DXMT by Feifan He (3Shain) with the Direct3D 9 frontend by David Acevedo (dacevedo12), rpmalloc by Mattias Jansson, StikDebug, StikJIT and idevice. Thank you to everyone who contributes to these projects.")
-                }
+                MadeiraCreditsSection()
             }
         }
         .alert("Restart Madeira", isPresented: $restartNotice) {
@@ -3072,7 +3094,7 @@ struct LibraryDetail: View {
                     Toggle("Touch controls", isOn: $entry.touchControls)
                     if GamepadInput.keyboardMouseAvailable {
                         ControllerModeChoice(mode: $entry.controllerMode)
-                        if entry.controllerMode == "keys" {
+                        if LibraryModel.effectiveControllerMode(entry.controllerMode) == "keys" {
                             NavigationLink("Controller binds") {
                                 Form { ControllerBindsPage(binds: $entry.controllerBinds, mouseVertical: $entry.padMouseVertical) }
                                     .navigationTitle("Controller binds")
@@ -3444,7 +3466,9 @@ struct ControllerModeChoice: View {
     var body: some View {
         LabeledContent("Controller") {
             Picker("Controller", selection: Binding(get: { mode ?? "" }, set: { mode = $0.isEmpty ? nil : $0 })) {
-                Text("Game's own support").tag("")
+                // No choice follows Settings › Controller › Controller as keyboard & mouse.
+                Text(InputSettings.shared.padKeyboardMouseDefault ? "Default (keyboard and mouse)" : "Default (game's own support)").tag("")
+                Text("Game's own support").tag("xinput")
                 Text("XInput and DirectInput").tag("dinput")
                 Text("Keyboard and mouse").tag("keys")
             }.pickerStyle(.menu).labelsHidden()
@@ -3538,6 +3562,25 @@ struct DisplayRateSettings: View {
 }
 
 /// One row of Settings › Credits: a person, their GitHub account and what they did.
+/// Settings › Credits, shared by the library's Settings and the console home's.
+struct MadeiraCreditsSection: View {
+    var body: some View {
+        Section {
+            MadeiraCredit(name: "Will Faust", handle: "willfaust", role: "Created Madeira")
+            MadeiraCredit(name: "Nick", handle: "125hz", role: "32-bit game support, the game library and Madeira Dock")
+            MadeiraCredit(name: "Jfishin", handle: "Jfishin", role: "The original native Steam sign-in, library and downloads")
+            MadeiraCredit(name: "Jesse", handle: "JesseLovelace", role: "Steam Cloud saves, faster game launches, and fixes that let more games run")
+            MadeiraCredit(name: "Dan Perks", handle: "danperks", role: "In-app JIT without StikDebug, and pairing without a computer")
+            MadeiraCredit(name: "bahacan16", handle: "bahacan16", role: "Direct3D 12 and DXMT fixes, game launcher windows, per-game settings, PlayStation controllers, and save backups")
+            MadeiraCredit(name: "spitefulowl", handle: "spitefulowl", role: "Wine and FEX runtime fixes, DXMT texture and memory fixes, audio, the swap tier, and library launch options")
+            MadeiraCredit(name: "meshoklv", handle: "meshoklv", role: "Controller fixes for games that ship their own XInput or need focus, touch taps that stay off the mouse, and a crash-guard fix")
+            MadeiraCredit(name: "TheHadesc", handle: "TheHadesc", role: "Madeira Dock starts for games whose Steam launch entries do not start at zero, and a touch gamepad that survives the in-game keyboard")
+        } header: { Text("Credits") } footer: {
+            Text("Madeira is built on Wine, FEX-Emu, DXMT by Feifan He (3Shain) with the Direct3D 9 frontend by David Acevedo (dacevedo12), rpmalloc by Mattias Jansson, StikDebug, StikJIT and idevice. Thank you to everyone who contributes to these projects.")
+        }
+    }
+}
+
 struct MadeiraCredit: View {
     let name: String
     let handle: String
@@ -4025,7 +4068,8 @@ struct LibraryHUD: View {
                 LabeledContent("Size") { Slider(value: $controls.sizeScale, in: 0.5...2) }
                 Button("Edit controls", systemImage: "slider.horizontal.3") { controls.visible = true; controls.editing = true; model.menu = false }
                 if GamepadInput.keyboardMouseAvailable {
-                    ControllerModeChoice(mode: Binding(get: { model.controllerMode }, set: { model.controllerMode = $0; model.saveCurrentProfile() }))
+                    ControllerModeChoice(mode: Binding(get: { model.controllerMode ?? (InputSettings.shared.padKeyboardMouseDefault ? "xinput" : nil) },
+                                                       set: { model.controllerMode = LibraryModel.effectiveControllerMode($0); model.saveCurrentProfile() }))
                     if model.controllerMode == "keys" {
                         Button("Controller binds", systemImage: "gamecontroller") { bindsPage = true }
                     } else if model.controllerMode == "dinput" {

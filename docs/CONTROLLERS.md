@@ -179,6 +179,14 @@ the mouse. The bindings follow the layout on screen and are rebuilt when it
 changes. The choice is saved with the game. While the Session menu is open, or
 when the app resigns active, everything the mode holds is released.
 
+**Settings › Controller › Controller as keyboard & mouse** (console home;
+`padKeyboardMouseDefault` in `madeira-input.json`, off by default) makes this
+mode the default: a game whose Controller picker is left on **Default** starts
+with the pad as keyboard and mouse. **Game's own support** (stored as
+`"xinput"`) keeps XInput for one game while the default is on. A change made in
+the Session menu is stored as an explicit choice; a game left on Default follows
+later changes of the setting.
+
 `MADEIRA_PAD_KBM=0` removes the choice; `[pad-kbm]` logs the mode switching on
 and off and its releases.
 

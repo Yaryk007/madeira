@@ -613,9 +613,12 @@ check('Image(systemName: symbol)' in glyph and '.accessibilityLabel(label)' in g
       and 'Circle()' in glyph, 'starting screen: glyph buttons show no text and keep their words as VoiceOver labels')
 settings = block(lib, 'private var settings: some View')
 form = block(settings, 'Form {')
-last = form[[m.start() for m in re.finditer(r'\bSection\b', form)][-1]:]
-check('header: { Text("Credits") }' in last and form.count('Text("Credits")') == 1,
+# The credits are one view (MadeiraCreditsSection), shared with the console home's Settings.
+credits = block(lib, 'struct MadeiraCreditsSection: View')
+check(re.search(r'MadeiraCreditsSection\(\)\s*\}\s*\}$', form) is not None and form.count('MadeiraCreditsSection()') == 1
+      and 'header: { Text("Credits") }' in credits and credits.count('Text("Credits")') == 1,
       'Settings: Credits is the last section')
+last = credits
 for who in ('name: "Will Faust", handle: "willfaust"', 'name: "Nick", handle: "125hz"',
             'name: "Jfishin", handle: "Jfishin"', 'name: "Jesse", handle: "JesseLovelace"',
             'name: "Dan Perks", handle: "danperks"',
