@@ -1,0 +1,25 @@
+name: Swift typecheck (iOS)
+
+# Typechecks the app's Swift sources against the iOS SDK without the native
+# chains (Wine, FEX, DXMT): a fast compile check for front-end changes.
+on:
+  push:
+    paths: ['app/Madeira/**', '.github/workflows/swift-typecheck.yml']
+  workflow_dispatch:
+
+jobs:
+  typecheck:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select newest Xcode
+        run: |
+          sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
+          xcodebuild -version
+      - name: Typecheck
+        working-directory: app
+        run: |
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          find Madeira -name '*.swift' -print0 | xargs -0 xcrun swiftc -typecheck \
+            -sdk "$SDK" -target arm64-apple-ios17.0 -swift-version 5 -module-name Madeira \
+            -import-objc-header Madeira/Madeira-Bridging-Header.h -I Madeira
