@@ -865,6 +865,25 @@ jobs:
             -c "Set :CFBundleVersion ${{ github.run_number }}" \
             app/Madeira/Info.plist
 
+      # StikJIT.xcframework's interface was emitted by Swift 6.4, which writes
+      # module selectors (Swift::String); the runner's Xcode cannot parse them.
+      # Rewrite to the older Module.Type form. The module also declares an
+      # enum StikJIT, so its own selector is dropped instead of becoming
+      # StikJIT.X (the enum). The binary is unchanged (library evolution).
+      - name: Make StikJIT's interface readable by this Xcode
+        shell: bash
+        run: |
+          find app/Frameworks/StikJIT.xcframework -name "*.swiftinterface" -print0 | while IFS= read -r -d '' f; do
+            python3 - "$f" <<'PYEOF'
+          import re, sys
+          p = sys.argv[1]; s = open(p).read()
+          s = re.sub(r"\bStikJIT::", "", s)
+          s = re.sub(r"\b([A-Za-z_][A-Za-z0-9_]*)::", r"\1.", s)
+          open(p, "w").write(s)
+          print(p.split("/")[-1], "selectors left:", s.count("::"))
+          PYEOF
+          done
+
       # docs/BUILDING.md: Debug is the configuration that runs the games.
       - name: Archive (unsigned)
         shell: bash
