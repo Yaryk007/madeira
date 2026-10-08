@@ -576,17 +576,26 @@ struct ConsoleHint: Identifiable {
 struct ConsoleHintBar: View {
     let hints: [ConsoleHint]
     var body: some View {
-        HStack(spacing: 18) {
-            Spacer(minLength: 0)
+        // Narrow screens drop the words before the glyphs.
+        ViewThatFits(in: .horizontal) {
+            row(labels: true)
+            row(labels: false)
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .frame(height: 34)
+        .accessibilityHidden(true)
+    }
+
+    private func row(labels: Bool) -> some View {
+        HStack(spacing: labels ? 18 : 12) {
             ForEach(hints) { hint in
                 HStack(spacing: 6) {
                     ForEach(hint.glyph.split(separator: " ").map(String.init), id: \.self) { ConsoleGlyph(text: $0) }
-                    Text(hint.label).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white.opacity(0.8))
+                    if labels { Text(hint.label).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white.opacity(0.8)) }
                 }.fixedSize()
             }
         }
-        .frame(height: 34)
-        .accessibilityHidden(true)
+        .fixedSize()
     }
 }
 
