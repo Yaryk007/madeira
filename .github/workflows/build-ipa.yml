@@ -289,9 +289,33 @@ jobs:
           path: toolchains/ffmpeg-ios
           key: ffmpeg-ios-${{ hashFiles('build/ffmpeg/build.sh', 'build/ffmpeg/src/SHA256SUMS') }}
 
+      # The runner's iPhoneOS SDK lacks two things the development SDK has
+      # (madeira-bcd hit both): <net/route.h>, so config.h leaves
+      # HAVE_NET_ROUTE_H undefined although shims/net/route.h provides it, and
+      # rusage_info_v6.ri_page_wait_time_mach (a diagnostic column only).
+      - name: Patch ntdll-unix for the CI SDK
+        shell: bash
+        run: |
+          python3 - <<'PYEOF'
+          guard = "/* CI: HAVE_NET_ROUTE_H (shims/net/route.h) */\n#ifndef HAVE_NET_ROUTE_H\n#define HAVE_NET_ROUTE_H 1\n#endif\n"
+          for p in ("build/ntdll-unix/nsi_ip_ios.c", "build/ntdll-unix/nsi_ndis_ios.c"):
+              s = open(p).read()
+              if guard not in s: open(p, "w").write(guard + s)
+          p = "build/ntdll-unix/server_ios.c"
+          s = open(p).read()
+          s = s.replace("XP_MS( ru.ri_page_wait_time_mach - pru.ri_page_wait_time_mach )", "0.0")
+          open(p, "w").write(s)
+          PYEOF
+          head -5 build/ntdll-unix/nsi_ip_ios.c
+          grep -c ri_page_wait_time_mach build/ntdll-unix/server_ios.c || true
+
       - name: Build ntdll-unix
         continue-on-error: true
-        run: bash build/ntdll-unix/build.sh 2>&1 | tee "$GITHUB_WORKSPACE/ntdll.log"; exit ${PIPESTATUS[0]}
+        shell: bash
+        run: |
+          bash build/ntdll-unix/build.sh 2>&1 | tee "$GITHUB_WORKSPACE/ntdll.log"; rc=${PIPESTATUS[0]}
+          for f in build/ntdll-unix/obj/*.err; do grep -q "error:" "$f" 2>/dev/null && { echo "===== $f"; grep -m 8 -B2 -A4 "error:" "$f"; }; done
+          exit $rc
 
       - name: Build base libwineserver.a from wine/server sources
         shell: bash
