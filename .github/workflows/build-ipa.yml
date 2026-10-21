@@ -1,11 +1,11 @@
-name: Build Madeira IPA (unsigned)
+name: Build GamehubiOS IPA (unsigned)
 
 # Builds every native chain from source (docs/BUILDING.md) and archives the app
 # unsigned. Ported from the madeira-bcd fork's workflow, on upstream's scripts.
 on:
   workflow_dispatch:
   push:
-    branches: [main, console-ui]
+    branches: [main, console-ui, gamehub]
     paths: [".github/workflows/build-ipa.yml"]
 
 concurrency:
@@ -713,6 +713,9 @@ jobs:
                 msvcp140_atomic_wait.dll msvcp140_codecvt_ids.dll vcamp140.dll
                 vccorlib140.dll vcomp140.dll vcruntime140.dll vcruntime140_1.dll
                 vcruntime140_threads.dll"
+          # xcodebuild copies this folder as a resource: it must exist even
+          # when the download fails, and every cp below writes into it.
+          mkdir -p "$DEST"
           command -v cabextract >/dev/null 2>&1 || brew install cabextract
           command -v msiextract >/dev/null 2>&1 || brew install msitools
 
@@ -955,13 +958,13 @@ jobs:
         run: |
           mkdir -p build-out/Payload
           cp -R build-out/Madeira.xcarchive/Products/Applications/Madeira.app build-out/Payload/
-          cd build-out && ditto -c -k --keepParent Payload Madeira-0.1.${{ github.run_number }}-unsigned.ipa
+          cd build-out && ditto -c -k --keepParent Payload GamehubiOS-0.1.${{ github.run_number }}-unsigned.ipa
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: madeira-0.1.${{ github.run_number }}-unsigned-ipa
-          path: build-out/Madeira-0.1.${{ github.run_number }}-unsigned.ipa
+          name: gamehubios-0.1.${{ github.run_number }}-unsigned-ipa
+          path: build-out/GamehubiOS-0.1.${{ github.run_number }}-unsigned.ipa
           if-no-files-found: ignore
 
       - uses: actions/upload-artifact@v4
