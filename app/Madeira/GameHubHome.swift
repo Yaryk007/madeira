@@ -134,10 +134,12 @@ struct GameHubHomeView: View {
     @State private var settingsModal = false
     @State private var settingsColumn = 0
     @State private var dialog: GameHubDialog.Content?
+    @StateObject private var importer = GameImportModel()
 
     private var accent: Color { ConsoleHome.accent(accentIndex) }
     private var modal: Bool {
         selected != nil || browser || onboarding.presented || settingsModal || dialog != nil || steamSignIn || model.error != nil
+            || importer.menu || importer.picker != nil || importer.pendingExe != nil || importer.progress != nil || !importer.choices.isEmpty
     }
     private var jitProblem: JITCoordinator.ConnectionProblem? {
         jit.connectionProblem.flatMap { model.error == $0.message ? $0 : nil }
@@ -157,6 +159,10 @@ struct GameHubHomeView: View {
                     content.frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
+            GameHubControllerToast().padding(.top, 70).padding(.trailing, 34)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .allowsHitTesting(false)
+            GameImportOverlay(model: importer, browse: { browser = true })
             if let dialog {
                 GameHubDialog(content: dialog) { self.dialog = nil }.transition(.opacity)
             }
@@ -209,6 +215,7 @@ struct GameHubHomeView: View {
             onboarding.presentIfNeeded()
             steamGames.refresh()
             rebuildGames()
+            importer.added = { entry in model.save(entry); selected = entry }
             LogStore.shared.log("[gamehub-home] shown games=\(games.count)")
         }
     }
@@ -253,7 +260,7 @@ struct GameHubHomeView: View {
         case .settings:
             GameHubFullPage(title: "Settings", glow: Color(red: 0.16, green: 0.2, blue: 0.36), close: { self.page = nil }) {
                 ConsoleSettingsPage(active: !modal, modal: $settingsModal, column: $settingsColumn, accent: accent,
-                                    enableJIT: enableJIT, startDock: startDock, addGame: { browser = true },
+                                    enableJIT: enableJIT, startDock: startDock, addGame: { importer.start() },
                                     exit: { self.page = nil }, gamehub: true)
                     .padding(.horizontal, 10)
             }
@@ -272,6 +279,7 @@ struct GameHubHomeView: View {
                                    if coverIndex == i { launch(games, at: i) }
                                    else { withAnimation(GameHubLibraryPage.motion) { coverIndex = i; libraryRow = 0 } }
                                },
+                               scrolled: { i in withAnimation(GameHubLibraryPage.motion) { coverIndex = i; libraryRow = 0 } },
                                details: { details(games, at: coverIndex) },
                                play: { launch(games, at: coverIndex) },
                                tile: { i in tileIndex = i; libraryRow = 1; openShelf(GameHubShelf.allCases[i]) })
@@ -295,7 +303,7 @@ struct GameHubHomeView: View {
             GameHubShelfPage(title: "Epic", back: closeShelf) {
                 GameHubEmptyState(title: "Epic Games Store",
                                   message: "Signing in to Epic is not supported yet. Games you installed elsewhere can be added with Import.",
-                                  action: ("Import", { browser = true }))
+                                  action: ("Import", { importer.start() }))
             }
         case .importGame?:
             EmptyView()
@@ -335,7 +343,7 @@ struct GameHubHomeView: View {
     }
 
     private func openShelf(_ target: GameHubShelf) {
-        if target == .importGame { browser = true; return }
+        if target == .importGame { importer.start(); return }
         withAnimation(ConsoleHomeView.motion) { shelf = target }
     }
 
@@ -377,7 +385,7 @@ struct GameHubHomeView: View {
     /// Plays a game that is not Steam's; a Steam game opens its details page, which
     /// checks its download and sign-in first. An index past the end adds a game.
     private func launch(_ list: [LibraryEntry], at index: Int) {
-        guard list.indices.contains(index) else { browser = true; return }
+        guard list.indices.contains(index) else { importer.start(); return }
         let entry = list[index]
         if entry.steamAppID != nil { selected = entry; return }
         LogStore.shared.log("[gamehub-home] play \(entry.title)")
@@ -385,7 +393,7 @@ struct GameHubHomeView: View {
     }
 
     private func details(_ list: [LibraryEntry], at index: Int) {
-        guard list.indices.contains(index) else { browser = true; return }
+        guard list.indices.contains(index) else { importer.start(); return }
         selected = list[index]
     }
 
@@ -438,7 +446,7 @@ struct GameHubHomeView: View {
             case "down": withAnimation(motion) { libraryRow = 1 }
             case "accept": launch(games, at: coverIndex)
             case "x": details(games, at: coverIndex)
-            case "add": browser = true
+            case "add": importer.start()
             default: break
             }
         } else {
@@ -447,7 +455,7 @@ struct GameHubHomeView: View {
             case "right": tileIndex = min(GameHubShelf.allCases.count - 1, tileIndex + 1)
             case "up": if !games.isEmpty { withAnimation(motion) { libraryRow = 0 } }
             case "accept": openShelf(GameHubShelf.allCases[tileIndex])
-            case "add": browser = true
+            case "add": importer.start()
             default: break
             }
         }
@@ -462,7 +470,7 @@ struct GameHubHomeView: View {
         case "down": if let columns { next += columns } else { return }
         case "accept": launch(list, at: index.wrappedValue); return
         case "x": details(list, at: index.wrappedValue); return
-        case "add": browser = true; return
+        case "add": importer.start(); return
         default: return
         }
         next = min(max(next, 0), list.count)
@@ -478,6 +486,7 @@ struct GameHubTopBar: View {
     let actions: [GameHubAction]
     let select: (GameHubTab) -> Void
     let perform: (GameHubAction) -> Void
+    @ObservedObject private var pads = GameHubControllers.shared
 
     var body: some View {
         HStack(spacing: 0) {
@@ -503,6 +512,7 @@ struct GameHubTopBar: View {
                 ForEach(actions, id: \.self) { action in
                     Button { perform(action) } label: {
                         if action == .layoutSwitch { GameHubLayoutSwitchIcon().frame(width: 22, height: 22) }
+                        else if action == .controller, pads.name != nil { Image(systemName: "gamecontroller.fill") }
                         else { Image(systemName: action.icon) }
                     }
                     .accessibilityLabel(action.label)
@@ -626,11 +636,14 @@ struct GameHubLibraryPage: View {
     /// 0: the covers have the controller's focus, 1: the tiles.
     let row: Int
     let focusCover: (Int) -> Void
+    /// The row settled on another game by touch.
+    let scrolled: (Int) -> Void
     let details: () -> Void
     let play: () -> Void
     let tile: (Int) -> Void
 
-    static var motion: Animation? { UIAccessibility.isReduceMotionEnabled ? nil : .spring(response: 0.32, dampingFraction: 0.86) }
+    /// A quick glide that eases out, as the video's row moves.
+    static var motion: Animation? { UIAccessibility.isReduceMotionEnabled ? nil : .spring(response: 0.42, dampingFraction: 0.92) }
 
     var body: some View {
         GeometryReader { geo in
@@ -670,30 +683,50 @@ struct GameHubLibraryPage: View {
         }
     }
 
+    /// A scrolling row, as GameHub's: drag it freely and it settles on a game;
+    /// the D-pad glides it. The selected game sits at the left with the one
+    /// before peeking in, larger than the rest, its title under the next covers.
     private func covers(height big: CGFloat, width: CGFloat) -> some View {
         let small = big * 0.8
-        let rest = Array(games.indices.dropFirst(coverIndex + 1))
-        return HStack(alignment: .top, spacing: 14) {
-            cover(games[coverIndex], width: big * 0.667, height: big, focused: true)
-                .onTapGesture { focusCover(coverIndex) }
-            // The smaller covers after it, with the focused game's title under them.
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .top, spacing: 14) {
-                    ForEach(rest, id: \.self) { i in
-                        cover(games[i], width: small * 0.667, height: small, focused: false)
+        let peek: CGFloat = 34 + 44
+        let position = Binding<Int?>(get: { coverIndex }, set: { if let i = $0, i != coverIndex { scrolled(i) } })
+        return ZStack(alignment: .topLeading) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(alignment: .top, spacing: 14) {
+                    ForEach(games.indices, id: \.self) { i in
+                        let focused = i == coverIndex
+                        cover(games[i], width: (focused ? big : small) * 0.667, height: focused ? big : small, focused: focused)
+                            .overlay(alignment: .bottom) {
+                                if focused && GCController.current != nil {
+                                    HStack(spacing: 6) {
+                                        ConsoleGlyph(text: "A")
+                                        Text("Launch Game").font(.system(size: 13, weight: .medium))
+                                    }
+                                    .padding(.horizontal, 10).padding(.vertical, 6)
+                                    .frame(maxWidth: .infinity)
+                                    .background(LinearGradient(colors: [.clear, .black.opacity(0.65)], startPoint: .top, endPoint: .bottom))
+                                    .clipShape(UnevenRoundedRectangle(cornerRadii: .init(bottomLeading: 14, bottomTrailing: 14), style: .continuous))
+                                }
+                            }
                             .onTapGesture { focusCover(i) }
+                            .id(i)
                     }
                 }
-                .frame(height: rest.isEmpty ? 0 : small, alignment: .top)
-                Text(games[coverIndex].title).font(.system(size: 19, weight: .bold)).lineLimit(1)
-                    .padding(.top, rest.isEmpty ? big - 30 : 14)
-                    .id("title-" + ConsoleHomeView.key(games[coverIndex]))
-                    .transition(.opacity)
+                .scrollTargetLayout()
             }
+            .scrollTargetBehavior(.viewAligned)
+            .scrollPosition(id: position, anchor: .leading)
+            .contentMargins(.leading, peek, for: .scrollContent)
+            .contentMargins(.trailing, max(0, width - peek - big * 0.667 - 20), for: .scrollContent)
+            .frame(width: width, height: big + 4, alignment: .topLeading)
+            Text(games[coverIndex].title).font(.system(size: 19, weight: .bold)).lineLimit(1)
+                .frame(maxWidth: max(80, width - peek - big * 0.667 - 48), alignment: .leading)
+                .offset(x: peek + big * 0.667 + 14, y: games.count > coverIndex + 1 ? small + 14 : big - 30)
+                .id("title-" + ConsoleHomeView.key(games[coverIndex]))
+                .transition(.opacity)
+                .allowsHitTesting(false)
         }
-        .frame(width: width - 68, alignment: .leading)
-        .frame(height: big, alignment: .top)
-        .clipped()
+        .padding(.horizontal, -34)
         .animation(Self.motion, value: coverIndex)
     }
 
@@ -797,5 +830,21 @@ struct GameHubShelfPage<Content: View>: View {
             .padding(.horizontal, 34).padding(.top, 6)
             content().frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+    }
+}
+
+/// "Device connected · <name>" for a few seconds after a controller connects
+/// (or "Device disconnected"), as GameHub shows it.
+struct GameHubControllerToast: View {
+    @ObservedObject private var pads = GameHubControllers.shared
+    var body: some View {
+        ZStack {
+            if let toast = pads.toast {
+                GameHubPadBadge(title: toast.connected ? "Device connected" : "Device disconnected", name: toast.name, connected: toast.connected)
+                    .id(toast.id)
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: pads.toast?.id)
     }
 }

@@ -128,23 +128,67 @@ struct GameHubLaunchBar: View {
     }
 }
 
-/// "Device connected" and the controller's name, or the touch controller.
+/// "Device connected" and the controller's name, only while a controller is connected.
 struct GameHubControllerPill: View {
-    @State private var pad: String?
+    @ObservedObject private var pads = GameHubControllers.shared
+    var body: some View {
+        if let name = pads.name { GameHubPadBadge(title: "Device connected", name: name) }
+    }
+}
+
+struct GameHubPadBadge: View {
+    let title: String
+    let name: String
+    var connected = true
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "gamecontroller").font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Color(red: 0.4, green: 0.6, blue: 1))
+            Image(systemName: connected ? "gamecontroller" : "gamecontroller.slash").font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(connected ? Color(red: 0.4, green: 0.6, blue: 1) : Color.white.opacity(0.5))
                 .frame(width: 34, height: 34).background(Circle().fill(Color.white.opacity(0.06)))
             VStack(alignment: .leading, spacing: 1) {
-                Text("Device connected").font(.system(size: 11)).foregroundStyle(.white.opacity(0.45))
-                Text(pad ?? "Virtual Controller").font(.system(size: 14)).foregroundStyle(.white.opacity(0.9)).lineLimit(1)
+                Text(title).font(.system(size: 11)).foregroundStyle(.white.opacity(0.45))
+                Text(name).font(.system(size: 14)).foregroundStyle(.white.opacity(0.9)).lineLimit(1)
             }
         }
         .padding(.leading, 6).padding(.trailing, 18).padding(.vertical, 6)
-        .background(Capsule().fill(Color.white.opacity(0.06)))
-        .onAppear { pad = GCController.current?.vendorName }
-        .onReceive(NotificationCenter.default.publisher(for: .GCControllerDidBecomeCurrent)) { _ in pad = GCController.current?.vendorName }
-        .onReceive(NotificationCenter.default.publisher(for: .GCControllerDidStopBeingCurrent)) { _ in pad = GCController.current?.vendorName }
+        .background(Capsule().fill(Color(white: 0.1).opacity(0.92)))
+        .overlay(Capsule().stroke(Color.white.opacity(0.08)))
+    }
+}
+
+/// The connected game controller, for the status corner, the toast and the
+/// starting screen.
+@MainActor final class GameHubControllers: ObservableObject {
+    static let shared = GameHubControllers()
+    @Published private(set) var name: String?
+    /// The last connect or disconnect, shown as a toast for a few seconds.
+    @Published private(set) var toast: (name: String, connected: Bool, id: UUID)?
+    private var observers: [NSObjectProtocol] = []
+
+    private init() {
+        name = Self.current()
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(forName: .GCControllerDidConnect, object: nil, queue: .main) { [weak self] note in
+            let pad = note.object as? GCController
+            MainActor.assumeIsolated { self?.changed(pad.map(Self.label), connected: true) }
+        })
+        observers.append(center.addObserver(forName: .GCControllerDidDisconnect, object: nil, queue: .main) { [weak self] note in
+            let pad = note.object as? GCController
+            MainActor.assumeIsolated { self?.changed(pad.map(Self.label), connected: false) }
+        })
+    }
+
+    private func changed(_ label: String?, connected: Bool) {
+        name = Self.current()
+        let id = UUID()
+        toast = (label ?? "Controller", connected, id)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.5) { [weak self] in
+            if self?.toast?.id == id { self?.toast = nil }
+        }
+    }
+
+    private static func label(_ pad: GCController) -> String { pad.vendorName ?? "Controller" }
+    private static func current() -> String? {
+        (GCController.current ?? GCController.controllers().first).map(label)
     }
 }

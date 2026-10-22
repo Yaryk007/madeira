@@ -86,97 +86,57 @@ enum ControlPresetLayout {
                       width: Double(z.width), height: Double(z.height))
     }
 
-    /// The built-in controller layout, using the editor's controller mappings:
+    /// The built-in controller layout, in GameHub's arrangement (GamehubiOS),
+    /// measured from GameHub's screen at 1024x576:
     ///
-    ///   LT LB  (top left)                              (top right)  RB RT
-    ///   D-pad  above the left stick        A/B/X/Y diamond above the right stick
-    ///   LS (bottom left)  L3    View  Menu     R3  RS (bottom right)
+    ///   LT                                                         RT
+    ///   LB                                                         RB
+    ///   L3                                                         R3      Y
+    ///   LS     D-pad                                     RS          X   B
+    ///                         View  Menu                               A
     ///
-    /// Placed in points from the safe-area edges, then normalised. `k` scales
-    /// the whole thing up on a tall (tablet) screen, where a phone-sized stick
-    /// would be lost; every scale stays inside the editor's 0.5–3.0 pinch clamp.
+    /// Distances scale with the screen's height and are measured from the safe
+    /// area's edges, so a wider phone only widens the middle. Every scale stays
+    /// inside the editor's 0.5–3.0 pinch clamp.
     static func xbox(for screen: ControlPresetScreen) -> [TouchControl] {
         let s = screen.landscape
         let W = s.width, H = s.height
         guard W > 0, H > 0 else { return [] }
-        let k = min(max(H / 400, 1.0), 1.3)
-        let (L, R, T, B) = margins(s)
+        let f = H / 576
+        let (L, R, _, _) = margins(s)
         var out: [TouchControl] = []
-        func add(_ name: String, _ scale: Double, _ x: Double, _ y: Double) {
+        /// `x` is the reference distance from the nearer edge (`right` mirrors it), `d` the reference size.
+        func add(_ name: String, _ d: Double, _ x: Double, _ y: Double, right: Bool = false) {
             var c = TouchControl()
             c.action = .pad(name)
-            c.scale = scale
-            c.nx = x / W
-            c.ny = y / H
+            c.scale = min(max(d * f / baseDiameter, 0.5), 3.0)
+            let fromEdge = (x - 50) * f
+            c.nx = (right ? W - R - fromEdge : L + fromEdge) / W
+            c.ny = y * f / H
             out.append(c)
         }
-        func d(_ scale: Double) -> Double { baseDiameter * scale }
-        let stickScale = 1.45 * k, faceScale = 0.78 * k, dpadScale = 0.7 * k
-        let shoulderScale = 0.88 * k, systemScale = 0.75 * k, clickScale = 0.62 * k
-
-        // Sticks: bottom corners, clear of the home indicator.
-        let stick = d(stickScale)
-        let stickY = H - B - 12 * k - stick / 2
-        let lStickX = L + 76 * k, rStickX = W - R - 76 * k
-        add("LS", stickScale, lStickX, stickY)
-        add("RS", stickScale, rStickX, stickY)
-        let stickTop = stickY - stick / 2
-
-        // Shoulders: a column in each top corner, trigger above bumper as on
-        // the controller. Drawn 1.6× as wide as they are tall and 0.74 d high
-        // (ControlAction.controlSize), so the column is two of those plus a gap.
-        let sh = d(shoulderScale), shW = sh * 1.6, shH = sh * 0.74
-        let shoulderX = shW / 2 + 6 * k
-        let triggerY = T + 6 * k + shH / 2
-        let bumperY = triggerY + shH + 8 * k
-        add("LT", shoulderScale, L + shoulderX, triggerY)
-        add("LB", shoulderScale, L + shoulderX, bumperY)
-        add("RB", shoulderScale, W - R - shoulderX, bumperY)
-        add("RT", shoulderScale, W - R - shoulderX, triggerY)
-        // The columns' bottom and inner edge, for placing the D-pad cross and
-        // the face diamond below them (or, on a short screen, inboard of them).
-        let rowBottom = bumperY + shH / 2
-        let columnInner = shoulderX + shW / 2 + 10 * k
-
-        // D-pad: a tight cross at the left edge, between the shoulder column
-        // and the stick, so the middle of the screen stays clear. When the
-        // screen is too short for that stack (a phone with a tall column), the
-        // cross moves inboard of the column instead and rises beside it.
-        let dp = d(dpadScale), arm = dp + 6 * k
-        let stacked = rowBottom + 8 * k + 2 * arm + dp <= stickTop - 8 * k
-        let dpadX = stacked ? L + 6 * k + arm + dp / 2 : L + columnInner + arm + dp / 2
-        let dpadY = stacked ? rowBottom + 8 * k + arm + dp / 2
-                            : max(stickTop - 22 * k - arm - dp / 2, T + 6 * k + arm + dp / 2)
-        add("D↑", dpadScale, dpadX, dpadY - arm)
-        add("D←", dpadScale, dpadX - arm, dpadY)
-        add("D→", dpadScale, dpadX + arm, dpadY)
-        add("D↓", dpadScale, dpadX, dpadY + arm)
-
-        // A/B/X/Y: a tight diamond at the right edge, mirroring the D-pad.
-        // Diagonal neighbours sit o·√2 apart, which clears one face button's
-        // diameter.
-        let face = d(faceScale)
-        let o = face / 2 + 22 * k
-        let cx = stacked ? W - R - 6 * k - o - face / 2 : W - R - columnInner - o - face / 2
-        let cy = stacked ? rowBottom + 8 * k + o + face / 2
-                         : max(stickTop - 22 * k - o - face / 2, T + 6 * k + o + face / 2)
-        add("Y", faceScale, cx, cy - o)
-        add("X", faceScale, cx - o, cy)
-        add("B", faceScale, cx + o, cy)
-        add("A", faceScale, cx, cy + o)
-
-        // View / Menu: bottom centre, between the sticks.
-        let sys = d(systemScale)
-        let sysY = H - B - 20 * k - sys / 2
-        add("View", systemScale, W / 2 - 46 * k, sysY)
-        add("Menu", systemScale, W / 2 + 46 * k, sysY)
-
-        // L3 / R3: small buttons on the inner side of each stick, level with
-        // its bottom edge.
-        let click = d(clickScale)
-        let clickY = stickY + stick / 2 - click / 2
-        add("L3", clickScale, lStickX + stick / 2 + 20 * k + click / 2, clickY)
-        add("R3", clickScale, rStickX - stick / 2 - 20 * k - click / 2, clickY)
+        // Shoulders: a trigger over a bumper in each top corner (86x40 keys).
+        add("LT", 54, 102, 141); add("LB", 54, 102, 201)
+        add("RT", 54, 102, 141, right: true); add("RB", 54, 102, 201, right: true)
+        // Stick clicks under them.
+        add("L3", 60, 81, 293); add("R3", 60, 81, 293, right: true)
+        // Sticks, and the D-pad and the face buttons on their outer sides.
+        add("LS", 122, 152, 393)
+        add("RS", 122, 319, 393, right: true)
+        let arm = 40.0
+        add("D↑", 44, 315, 393 - arm); add("D↓", 44, 315, 393 + arm)
+        add("D←", 44, 315 - arm, 393); add("D→", 44, 315 + arm, 393)
+        add("Y", 60, 137, 333, right: true); add("A", 60, 137, 454, right: true)
+        add("X", 60, 197, 393, right: true); add("B", 60, 77, 393, right: true)
+        // View and Menu: small pills at the bottom centre.
+        for (name, dx) in [("View", -35.0), ("Menu", 35.0)] {
+            var c = TouchControl()
+            c.action = .pad(name)
+            c.scale = min(max(47 * f / baseDiameter, 0.5), 3.0)
+            c.nx = (W / 2 + dx * f) / W
+            c.ny = 474 * f / H
+            out.append(c)
+        }
         return out
     }
 }

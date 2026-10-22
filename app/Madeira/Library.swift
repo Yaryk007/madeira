@@ -4027,6 +4027,9 @@ struct LibraryHUD: View {
                 }
                 if !model.launching && model.performance { LibraryFloatingItem(isMenu: false, viewport: geo.size, insets: geo.safeAreaInsets) }
                 if model.liveLogs && !model.launching { LibraryLiveLogs().frame(maxWidth: 550, maxHeight: 140).padding(.top, Self.topInset(geo) + 60).padding(.horizontal, 12).allowsHitTesting(false) }
+                // GamehubiOS: a controller connecting or leaving mid-game, as on the home.
+                GameHubControllerToast().frame(maxWidth: .infinity, alignment: .topTrailing)
+                    .padding(.top, Self.topInset(geo) + 12).padding(.trailing, 16 + geo.safeAreaInsets.trailing).allowsHitTesting(false)
                 if !model.sessionMessage.isEmpty { Text(model.sessionMessage).font(.caption).padding(10).background(.regularMaterial, in: Capsule()).frame(maxWidth: .infinity).padding(.top, Self.topInset(geo) + 12).allowsHitTesting(false) }
                 if !model.launching { LibraryFloatingItem(isMenu: true, viewport: geo.size, insets: geo.safeAreaInsets) }
                 if model.menu {

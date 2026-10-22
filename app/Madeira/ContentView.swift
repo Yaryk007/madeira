@@ -3806,7 +3806,7 @@ enum ControlAction: Codable, Equatable, Hashable {
     // its labels. Saved layouts keep their names ("Menu", "View", "D↑"); only
     // the drawing changes.
     // ------------------------------------------------------------------
-    enum PadFace { case round, wide, capsule, small }
+    enum PadFace { case round, wide, capsule, small, dpad }
 
     var padFace: PadFace? {
         guard let n = padName else { return nil }
@@ -3814,6 +3814,7 @@ enum ControlAction: Codable, Equatable, Hashable {
         case "LB", "RB", "LT", "RT": return .wide
         case "Menu", "View":         return .capsule
         case "L3", "R3":             return .small
+        case "D↑", "D↓", "D←", "D→": return .dpad   // GamehubiOS: GameHub's cross arms
         default:                     return .round
         }
     }
@@ -3843,6 +3844,7 @@ enum ControlAction: Codable, Equatable, Hashable {
         case .wide:    return CGSize(width: d * 1.6, height: d * 0.74)
         case .capsule: return CGSize(width: d * 1.2, height: d * 0.5)
         case .small:   return CGSize(width: d * 0.8, height: d * 0.8)
+        case .dpad:    return padName == "D←" || padName == "D→" ? CGSize(width: d, height: d * 0.76) : CGSize(width: d * 0.76, height: d)
         default:       return CGSize(width: d, height: d)
         }
     }
@@ -4298,6 +4300,52 @@ extension ControlAction {
     }
 }
 
+extension View {
+    /// GamehubiOS: GameHub's on-screen button face. Dark and see-through, a faint
+    /// sheen at the top, a thin light outline; brighter while pressed.
+    func gameHubFace<S: Shape>(_ shape: S, pressed: Bool) -> some View {
+        background {
+            ZStack {
+                shape.fill(Color.black.opacity(pressed ? 0.62 : 0.42))
+                shape.fill(LinearGradient(colors: [Color.white.opacity(pressed ? 0.18 : 0.07), .clear], startPoint: .top, endPoint: .bottom))
+            }
+        }
+        .overlay { shape.stroke(Color.white.opacity(pressed ? 0.78 : 0.4), lineWidth: 1.4) }
+    }
+}
+
+/// One arm of GameHub's D-pad: a rounded key whose inner end points at the
+/// cross's centre.
+struct DPadArmShape: Shape {
+    let pad: String
+    func path(in r: CGRect) -> Path {
+        // Drawn pointing right (tip on the left, toward the centre), then turned.
+        let horizontal = pad == "D←" || pad == "D→"
+        let w = horizontal ? r.width : r.height, h = horizontal ? r.height : r.width
+        let tip = min(h * 0.5, w * 0.4), radius = h * 0.22
+        var p = Path()
+        p.move(to: CGPoint(x: 0, y: h / 2))
+        p.addLine(to: CGPoint(x: tip, y: 0))
+        p.addLine(to: CGPoint(x: w - radius, y: 0))
+        p.addQuadCurve(to: CGPoint(x: w, y: radius), control: CGPoint(x: w, y: 0))
+        p.addLine(to: CGPoint(x: w, y: h - radius))
+        p.addQuadCurve(to: CGPoint(x: w - radius, y: h), control: CGPoint(x: w, y: h))
+        p.addLine(to: CGPoint(x: tip, y: h))
+        p.closeSubpath()
+        let angle: CGFloat
+        switch pad {
+        case "D←": angle = .pi           // tip on the right
+        case "D↑": angle = -.pi / 2      // tip at the bottom
+        case "D↓": angle = .pi / 2       // tip at the top
+        default:   angle = 0
+        }
+        let turned = p.applying(CGAffineTransform(translationX: -w / 2, y: -h / 2)
+            .concatenating(CGAffineTransform(rotationAngle: angle))
+            .concatenating(CGAffineTransform(translationX: r.midX, y: r.midY)))
+        return turned
+    }
+}
+
 struct TouchControlButton: View {
     let control: TouchControl
     let screen: CGSize
@@ -4318,65 +4366,65 @@ struct TouchControlButton: View {
         switch control.action.padFace {
         case .some(.wide):    return AnyShape(RoundedRectangle(cornerRadius: size.height * 0.30))
         case .some(.capsule): return AnyShape(Capsule())
+        case .some(.dpad):    return AnyShape(DPadArmShape(pad: control.action.padName ?? "D↑"))
         default:              return AnyShape(Circle())
         }
     }
 
-    /// A controller button: coloured circle (A/B/X/Y), arrow (D-pad), wide
-    /// shoulder (LB/RB/LT/RT), START/SELECT pill, small L3/R3.
+    /// A controller button in GameHub's style (GamehubiOS): dark see-through
+    /// faces with a thin light outline and grey labels. Circles for A/B/X/Y and
+    /// L3/R3, wide keys for the shoulders, arms for the D-pad, icon pills for
+    /// View and Menu.
     @ViewBuilder private var padFace: some View {
         let a = control.action
+        let ink = Color.white.opacity(isDown ? 1.0 : 0.82)
         switch a.padFace ?? .round {
         case .round:
-            Group {
-                if let g = a.padGlyph {
-                    Image(systemName: g)
-                        .font(.system(size: size.height * 0.40, weight: .semibold))
-                        .foregroundStyle(.white.opacity(isDown ? 1.0 : 0.88))
-                } else {
-                    Text(a.padFaceLabel)
-                        .font(.system(size: size.height * (a.padFaceLabel.count > 2 ? 0.24 : 0.40), weight: .semibold))
-                        .foregroundStyle(.white.opacity(isDown ? 1.0 : 0.92))
-                }
-            }
-            .frame(width: size.width, height: size.height)
-            .glassFace(GlassShape(circle: true, tint: a.padTint))
+            Text(a.padFaceLabel)
+                .font(.system(size: size.height * (a.padFaceLabel.count > 2 ? 0.24 : 0.36), weight: .regular))
+                .foregroundStyle(ink)
+                .frame(width: size.width, height: size.height)
+                .gameHubFace(Circle(), pressed: isDown)
         case .small:
             Text(a.padFaceLabel)
-                .font(.system(size: size.height * 0.36, weight: .semibold))
-                .foregroundStyle(.white.opacity(isDown ? 1.0 : 0.85))
+                .font(.system(size: size.height * 0.34, weight: .regular))
+                .foregroundStyle(ink)
                 .frame(width: size.width, height: size.height)
-                .glassFace(GlassShape(circle: true))
+                .gameHubFace(Circle(), pressed: isDown)
         case .wide:
             Text(a.padFaceLabel)
-                .font(.system(size: size.height * 0.42, weight: .semibold))
-                .foregroundStyle(.white.opacity(isDown ? 1.0 : 0.88))
+                .font(.system(size: size.height * 0.46, weight: .regular))
+                .foregroundStyle(ink)
                 .frame(width: size.width, height: size.height)
-                .glassFace(GlassShape(cornerRadius: size.height * 0.30))
+                .gameHubFace(RoundedRectangle(cornerRadius: size.height * 0.24, style: .continuous), pressed: isDown)
         case .capsule:
-            Text(a.padFaceLabel)
-                .font(.system(size: size.height * 0.40, weight: .semibold))
-                .kerning(0.6)
-                .minimumScaleFactor(0.5)
-                .lineLimit(1)
-                .padding(.horizontal, 6)
-                .foregroundStyle(.white.opacity(isDown ? 1.0 : 0.85))
+            Image(systemName: a.padName == "Menu" ? "line.3.horizontal" : "rectangle.on.rectangle")
+                .font(.system(size: size.height * 0.46, weight: .regular))
+                .foregroundStyle(ink)
                 .frame(width: size.width, height: size.height)
-                .glassFace(GlassShape(capsule: true))
+                .gameHubFace(Capsule(), pressed: isDown)
+        case .dpad:
+            Color.clear
+                .frame(width: size.width, height: size.height)
+                .gameHubFace(DPadArmShape(pad: a.padName ?? "D↑"), pressed: isDown)
         }
     }
 
     var body: some View {
         ZStack {
             if control.action.isPadStick {
+                // GameHub's stick: a ring and a dark knob that follows the thumb.
                 ZStack {
-                    Circle().fill(.white.opacity(isDown ? 0.55 : 0.25))
-                        .frame(width: diameter * 0.42, height: diameter * 0.42)
-                        .offset(x: padVector.width * diameter * 0.29, y: padVector.height * diameter * 0.29)
-                    Text(control.action.label).font(.caption).foregroundStyle(.white.opacity(0.8))
+                    Circle()
+                        .fill(RadialGradient(colors: [Color(white: 0.16), Color(white: 0.05)], center: .center,
+                                             startRadius: 0, endRadius: diameter * 0.26))
+                        .overlay(Circle().stroke(Color.white.opacity(isDown ? 0.7 : 0.38), lineWidth: 1.4))
+                        .shadow(color: .black.opacity(0.6), radius: 6)
+                        .frame(width: diameter * 0.5, height: diameter * 0.5)
+                        .offset(x: padVector.width * diameter * 0.25, y: padVector.height * diameter * 0.25)
                 }
                 .frame(width: diameter, height: diameter)
-                .glassFace(GlassShape(circle: true))
+                .gameHubFace(Circle(), pressed: false)
             } else if control.action.stickKeys != nil {
                 // Reuse the portrait pad's face so both look and animate the
                 // same; scale it to whatever size this control was pinched to.
@@ -4388,7 +4436,7 @@ struct TouchControlButton: View {
                            height: JoystickFace.padRadius * 2)
                     .scaleEffect(diameter / (JoystickFace.padRadius * 2))
                     .frame(width: diameter, height: diameter)
-                    .glassFace(GlassShape(circle: true))
+                    .gameHubFace(Circle(), pressed: isDown)
             } else if control.action.isPad {
                 padFace
             } else {
@@ -4397,15 +4445,13 @@ struct TouchControlButton: View {
                 Text(control.action.label)
                     .font(.system(size: diameter * (control.action.label.count > 2 ? 0.22 : 0.34),
                                   weight: .medium))
-                    .foregroundStyle(.white.opacity(isDown ? 1.0 : 0.85))
+                    .foregroundStyle(.white.opacity(isDown ? 1.0 : 0.82))
                     .frame(width: size.width, height: size.height)
-                    .glassFace(GlassShape(circle: true))
+                    .gameHubFace(Circle(), pressed: isDown)
             }
         }
         .frame(width: size.width, height: size.height)
-        .overlay(outline.stroke(.white.opacity(isSelected ? 0.95
-                                               : (isStick ? 0 : 0.28)),
-                                lineWidth: isSelected ? 2 : 1))
+        .overlay(outline.stroke(.white.opacity(isSelected ? 0.95 : 0), lineWidth: 2))   // the face draws its own outline
         // A stick must not shrink under the thumb; only round buttons do that.
         .scaleEffect(!isStick && isDown ? 0.92 : 1.0)
         // ml890: no press animation. Pressing the on-screen Enter key killed the
