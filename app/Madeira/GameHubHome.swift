@@ -132,9 +132,13 @@ struct GameHubHomeView: View {
     @State private var page: GameHubPage?
     @State private var steamSignIn = false
     @State private var settingsModal = false
-    @State private var settingsColumn = 0
+    /// The Settings category a button opens (the controller button: Peripherals).
+    @State private var settingsCategory: GameHubSettingsPage.Category = .account
     @State private var dialog: GameHubDialog.Content?
     @StateObject private var importer = GameImportModel()
+    /// First run: "No game files detected", then the Import tile's spotlight.
+    @AppStorage("gamehubFirstRunDone") private var firstRunDone = false
+    @AppStorage("gamehubImportHintDone") private var importHintDone = false
 
     private var accent: Color { ConsoleHome.accent(accentIndex) }
     private var modal: Bool {
@@ -145,6 +149,8 @@ struct GameHubHomeView: View {
         jit.connectionProblem.flatMap { model.error == $0.message ? $0 : nil }
     }
     private var myGames: [LibraryEntry] { games.filter { $0.steamAppID == nil } }
+    private var showFirstRun: Bool { !firstRunDone && !onboarding.presented && !games.contains { $0.desktop != true } }
+    private var showImportHint: Bool { firstRunDone && !importHintDone && tab == .library && shelf == nil && page == nil && !modal }
     private var focusedCover: LibraryEntry? { games.indices.contains(coverIndex) ? games[coverIndex] : nil }
 
     var body: some View {
@@ -157,6 +163,21 @@ struct GameHubHomeView: View {
                     GameHubTopBar(tab: tab, actions: GameHubAction.forTab(tab), select: { switchTab(to: $0) }, perform: perform)
                         .padding(.horizontal, 34).padding(.top, 8)
                     content.frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .overlayPreferenceValue(GameHubImportAnchor.self) { anchor in
+                    GeometryReader { geo in
+                        if showImportHint, let anchor {
+                            GameHubImportHint(hole: geo[anchor], open: { importHintDone = true; importer.start() },
+                                              done: { importHintDone = true })
+                                .transition(.opacity)
+                        }
+                    }
+                    .ignoresSafeArea()
+                }
+                if showFirstRun {
+                    GameHubFirstRunPage(selectFolder: { firstRunDone = true; importer.picker = .folder(start: nil, exeName: nil) },
+                                        explore: { firstRunDone = true })
+                        .transition(.opacity)
                 }
             }
             GameHubControllerToast().padding(.top, 70).padding(.trailing, 34)
@@ -259,10 +280,8 @@ struct GameHubHomeView: View {
         switch page {
         case .settings:
             GameHubFullPage(title: "Settings", glow: Color(red: 0.16, green: 0.2, blue: 0.36), close: { self.page = nil }) {
-                ConsoleSettingsPage(active: !modal, modal: $settingsModal, column: $settingsColumn, accent: accent,
-                                    enableJIT: enableJIT, startDock: startDock, addGame: { importer.start() },
-                                    exit: { self.page = nil }, gamehub: true)
-                    .padding(.horizontal, 10)
+                GameHubSettingsPage(active: !modal, modal: $settingsModal, initial: settingsCategory,
+                                    enableJIT: enableJIT, startDock: startDock, exit: { self.page = nil })
             }
         case .downloads:
             GameHubFullPage(title: "Download Manager", glow: Color(red: 0.3, green: 0.16, blue: 0.5), close: { self.page = nil }) {
@@ -318,7 +337,8 @@ struct GameHubHomeView: View {
         case .layoutSwitch: UserDefaults.standard.set(false, forKey: ConsoleHome.key)
         case .notifications:
             dialog = .init(icon: "bell.badge", title: "Notifications", message: "You're all caught up.", primary: nil)
-        case .controller, .settings: settingsColumn = 0; page = .settings
+        case .controller: settingsCategory = .peripherals; page = .settings
+        case .settings: settingsCategory = .account; page = .settings
         case .scan: steamSignIn = true
         case .downloads: page = .downloads
         }
@@ -414,7 +434,7 @@ struct GameHubHomeView: View {
         switch command {
         case "tab": cycleTab(1); return
         case "tabPrev": cycleTab(-1); return
-        case "menu": settingsColumn = 0; page = .settings; return
+        case "menu": settingsCategory = .account; page = .settings; return
         default: break
         }
         switch tab {
@@ -763,8 +783,98 @@ struct GameHubShelves: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(shelf.title)
+                .anchorPreference(key: GameHubImportAnchor.self, value: .bounds) { shelf == .importGame ? $0 : nil }
             }
         }
+    }
+}
+
+struct GameHubImportAnchor: PreferenceKey {
+    static var defaultValue: Anchor<CGRect>?
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) { value = value ?? nextValue() }
+}
+
+/// The first run's spotlight on Import: the page dims around the tile, a hand
+/// points at it, "Click here to import games" and Got it beside.
+struct GameHubImportHint: View {
+    let hole: CGRect
+    let open: () -> Void
+    let done: () -> Void
+    @State private var bob = false
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Color.black.opacity(0.72)
+                .mask {
+                    ZStack {
+                        Rectangle()
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .frame(width: hole.width + 8, height: hole.height + 8)
+                            .position(x: hole.midX, y: hole.midY)
+                            .blendMode(.destinationOut)
+                    }
+                    .compositingGroup()
+                }
+                .onTapGesture(perform: done)
+            Color.clear.contentShape(Rectangle())
+                .frame(width: hole.width, height: hole.height)
+                .position(x: hole.midX, y: hole.midY)
+                .onTapGesture(perform: open)
+            Image(systemName: "hand.point.up.left.fill").font(.system(size: 40)).foregroundStyle(.white)
+                .shadow(radius: 6)
+                .position(x: hole.midX, y: hole.maxY + 42 + (bob ? -6 : 0))
+            HStack(spacing: 12) {
+                Text("Click here to import games").font(.system(size: 17))
+                Button(action: done) {
+                    Text("Got it").font(.system(size: 14)).padding(.horizontal, 12).frame(height: 28)
+                        .background(Capsule().fill(Color.white.opacity(0.14)))
+                }
+                .buttonStyle(.plain)
+            }
+            .fixedSize()
+            .position(x: min(hole.midX, UIScreen.main.bounds.width - 170), y: hole.maxY + 100)
+        }
+        .foregroundStyle(.white)
+        .onAppear { withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { bob = true } }
+    }
+}
+
+/// The first run with no games, as GameHub's after sign-in: no game files
+/// detected, Select Folder Manually, or explore first.
+struct GameHubFirstRunPage: View {
+    let selectFolder: () -> Void
+    let explore: () -> Void
+
+    var body: some View {
+        ZStack {
+            LinearGradient(colors: [Color(red: 0.02, green: 0.05, blue: 0.12), Color(red: 0.03, green: 0.1, blue: 0.24)],
+                           startPoint: .bottomLeading, endPoint: .topTrailing)
+            RadialGradient(colors: [Color(red: 0.25, green: 0.4, blue: 0.7).opacity(0.35), .clear], center: .topTrailing, startRadius: 0, endRadius: 420)
+            VStack(spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(LinearGradient(colors: [Color(white: 0.85), Color(white: 0.55)], startPoint: .top, endPoint: .bottom))
+                        .frame(width: 110, height: 70).offset(y: -18)
+                    Image(systemName: "folder.fill").font(.system(size: 120))
+                        .foregroundStyle(LinearGradient(colors: [Color(white: 0.42), Color(white: 0.2)], startPoint: .top, endPoint: .bottom))
+                        .shadow(color: .black.opacity(0.4), radius: 12, y: 6)
+                }
+                .frame(height: 120)
+                Text("No game files detected").font(.system(size: 18)).padding(.top, 8)
+                Text("Choose your game's folder; GamehubiOS copies it in and adds it to your library.")
+                    .font(.system(size: 14)).foregroundStyle(.white.opacity(0.6))
+                Button(action: selectFolder) {
+                    Text("Select Folder Manually").font(.system(size: 18))
+                        .frame(width: 340, height: 54)
+                        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(GameHub.postBlue))
+                        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Color.white.opacity(0.18)))
+                }
+                .buttonStyle(.plain).padding(.top, 14)
+                Button("Explore other games", action: explore).font(.system(size: 17)).foregroundStyle(GameHub.link).padding(.top, 8)
+            }
+        }
+        .ignoresSafeArea()
+        .foregroundStyle(.white)
     }
 }
 

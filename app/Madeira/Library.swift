@@ -4027,6 +4027,13 @@ struct LibraryHUD: View {
                 }
                 if !model.launching && model.performance { LibraryFloatingItem(isMenu: false, viewport: geo.size, insets: geo.safeAreaInsets) }
                 if model.liveLogs && !model.launching { LibraryLiveLogs().frame(maxWidth: 550, maxHeight: 140).padding(.top, Self.topInset(geo) + 60).padding(.horizontal, 12).allowsHitTesting(false) }
+                // GamehubiOS: Settings › Key Sound › Game Launch, once the game's first frame shows.
+                Color.clear.frame(width: 0, height: 0)
+                    .onChange(of: model.launching) { was, now in
+                        if was && !now && model.current != nil && GameHubPrefs.launchHaptic {
+                            UINotificationFeedbackGenerator().notificationOccurred(.success)
+                        }
+                    }
                 // GamehubiOS: a controller connecting or leaving mid-game, as on the home.
                 GameHubControllerToast().frame(maxWidth: .infinity, alignment: .topTrailing)
                     .padding(.top, Self.topInset(geo) + 12).padding(.trailing, 16 + geo.safeAreaInsets.trailing).allowsHitTesting(false)

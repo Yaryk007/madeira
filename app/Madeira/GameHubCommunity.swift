@@ -18,6 +18,21 @@ struct CommunityPost: Identifiable, Hashable {
     var images: [URL]
     /// GameHub's own account: an "Official" badge, and its tags as chips.
     var official = false
+    var likes = 0
+    var favorites = 0
+    var comments = 0
+    var shares = 0
+}
+
+struct CommunityComment: Identifiable, Hashable {
+    var id: String
+    var author: String
+    var avatar: URL?
+    var text: String
+    var time: String
+    var likes = 0
+    var replies = 0
+    var byAuthor = false
 }
 
 struct CommunitySection: Identifiable, Hashable {
@@ -36,6 +51,7 @@ protocol CommunityService {
     func sections() async throws -> [CommunitySection]
     func feed(following: Bool, section: CommunitySection, cursor: String?) async throws -> (posts: [CommunityPost], next: String?)
     func search(_ text: String) async throws -> [CommunityPost]
+    func comments(_ post: CommunityPost, newest: Bool) async throws -> [CommunityComment]
 }
 
 @MainActor final class CommunityModel: ObservableObject {
@@ -76,12 +92,20 @@ protocol CommunityService {
 
 struct GameHubCommunityPage: View {
     @ObservedObject private var model = CommunityModel.shared
+    /// The feed scrolled down: Following / Game Circle slide away and the
+    /// sections move up beside Post, as GameHub's header does.
+    @State private var collapsed = false
+    @State private var opened: CommunityPost?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center, spacing: 38) {
-                feedTab("Following", .following)
-                feedTab("Game Circle", .circle)
+                if collapsed && model.feed == .circle {
+                    sections.transition(.move(edge: .bottom).combined(with: .opacity))
+                } else {
+                    feedTab("Following", .following)
+                    feedTab("Game Circle", .circle)
+                }
                 Spacer()
                 Button {} label: {
                     Label("Post", systemImage: "plus").labelStyle(.titleAndIcon)
@@ -95,18 +119,9 @@ struct GameHubCommunityPage: View {
                 .opacity(model.account == nil ? 0.55 : 1)
             }
             .padding(.top, 2)
-            if model.feed == .circle {
+            if model.feed == .circle && !collapsed {
                 HStack(spacing: 28) {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 28) {
-                            ForEach(model.sections) { s in
-                                Button { model.section = s } label: {
-                                    Text(s.name).font(.system(size: 18, weight: .regular))
-                                        .foregroundStyle(s == model.section ? Color.white : GameHub.secondary)
-                                }.buttonStyle(.plain)
-                            }
-                        }
-                    }
+                    sections
                     Button {} label: {
                         Label("Manage", systemImage: "line.3.horizontal.decrease").font(.system(size: 17))
                             .foregroundStyle(Color.white.opacity(0.85))
@@ -115,11 +130,27 @@ struct GameHubCommunityPage: View {
                     .disabled(model.account == nil)
                 }
                 .padding(.top, 22)
+                .transition(.opacity)
             }
             posts.padding(.top, 18)
         }
         .padding(.horizontal, 34)
+        .animation(.easeInOut(duration: 0.22), value: collapsed)
         .task { if model.state != .loaded { await model.reload() } }
+        .fullScreenCover(item: $opened) { CommunityPostPage(post: $0) }
+    }
+
+    private var sections: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 28) {
+                ForEach(model.sections) { s in
+                    Button { model.section = s } label: {
+                        Text(s.name).font(.system(size: 18, weight: .regular))
+                            .foregroundStyle(s == model.section ? Color.white : GameHub.secondary)
+                    }.buttonStyle(.plain)
+                }
+            }
+        }
     }
 
     private func feedTab(_ title: String, _ feed: CommunityModel.Feed) -> some View {
@@ -152,14 +183,23 @@ struct GameHubCommunityPage: View {
                                   action: model.feed == .following ? ("Discover", { withAnimation(ConsoleHomeView.motion) { model.feed = .circle } }) : nil)
             } else {
                 ScrollView {
+                    GeometryReader { g in
+                        Color.clear.preference(key: CommunityScrollOffset.self, value: g.frame(in: .named("community-feed")).minY)
+                    }
+                    .frame(height: 0)
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: 16, alignment: .top), GridItem(.flexible(), spacing: 16, alignment: .top)],
                               spacing: 16) {
                         ForEach(model.posts) { post in
-                            CommunityPostCard(post: post)
+                            CommunityPostCard(post: post).onTapGesture { opened = post }
                                 .onAppear { if post.id == model.posts.last?.id { Task { await model.loadMore() } } }
                         }
                     }
                     .padding(.bottom, 20)
+                }
+                .coordinateSpace(name: "community-feed")
+                .onPreferenceChange(CommunityScrollOffset.self) { y in
+                    let now = y < -40
+                    if now != collapsed { collapsed = now }
                 }
                 .refreshable { await model.reload() }
             }
@@ -214,10 +254,135 @@ struct CommunityPostCard: View {
                 AsyncImage(url: image) { $0.resizable().aspectRatio(contentMode: .fill) } placeholder: { Color.white.opacity(0.06) }
                     .frame(maxWidth: 260).frame(height: 150).clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
+            HStack(spacing: 0) {
+                CommunityCount(icon: "heart", value: post.likes)
+                CommunityCount(icon: "star", value: post.favorites)
+                CommunityCount(icon: "text.bubble", value: post.comments)
+                CommunityCount(icon: "arrow.2.squarepath", value: post.shares)
+            }
+            .padding(.top, 2)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(GameHub.tile.opacity(0.75)))
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(GameHub.tileStroke))
+    }
+}
+
+struct CommunityScrollOffset: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
+}
+
+/// ♡ 598, ☆ 139 ... under a post.
+struct CommunityCount: View {
+    let icon: String
+    let value: Int
+    var body: some View {
+        HStack(spacing: 7) {
+            Image(systemName: icon).font(.system(size: 15))
+            Text(value.formatted()).font(.system(size: 15).monospacedDigit())
+        }
+        .foregroundStyle(Color.white.opacity(0.62))
+        .frame(maxWidth: .infinity)
+    }
+}
+
+/// A post opened: its images on the left, its comments (Hot · Newest) on the
+/// right, the author with Follow on top, as GameHub's post page.
+struct CommunityPostPage: View {
+    let post: CommunityPost
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var model = CommunityModel.shared
+    @State private var newest = false
+    @State private var comments: [CommunityComment]?
+
+    var body: some View {
+        ZStack {
+            LinearGradient(colors: [GameHub.background, Color(white: 0.13)], startPoint: .topLeading, endPoint: .bottomTrailing).ignoresSafeArea()
+            VStack(spacing: 0) {
+                HStack(spacing: 14) {
+                    Button { dismiss() } label: { Image(systemName: "chevron.left").font(.system(size: 22)) }.buttonStyle(.plain)
+                    AsyncImage(url: post.avatar) { $0.resizable().aspectRatio(contentMode: .fill) } placeholder: { Circle().fill(Color.white.opacity(0.1)) }
+                        .frame(width: 36, height: 36).clipShape(Circle())
+                    Text(post.author).font(.system(size: 19))
+                    Text(post.activity).font(.system(size: 14)).foregroundStyle(GameHub.secondary)
+                    Spacer()
+                    Text("Follow").font(.system(size: 17)).padding(.horizontal, 22).frame(height: 38)
+                        .background(Capsule().fill(GameHub.postBlue)).opacity(model.account == nil ? 0.55 : 1)
+                    Image(systemName: "ellipsis").font(.system(size: 17, weight: .bold))
+                }
+                .padding(.horizontal, 44).padding(.vertical, 10)
+                HStack(alignment: .top, spacing: 0) {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 14) {
+                            if !post.title.isEmpty { Text(post.title).font(.system(size: 20, weight: .medium)) }
+                            if !post.body.isEmpty { Text(post.body).font(.system(size: 16)).foregroundStyle(.white.opacity(0.85)) }
+                            ForEach(post.images, id: \.self) { url in
+                                AsyncImage(url: url) { $0.resizable().aspectRatio(contentMode: .fit) } placeholder: { Color.white.opacity(0.05).frame(height: 240) }
+                                    .frame(maxWidth: .infinity)
+                            }
+                        }
+                        .padding(.horizontal, 44).padding(.vertical, 8)
+                    }
+                    .frame(maxWidth: .infinity)
+                    Rectangle().fill(Color.white.opacity(0.08)).frame(width: 1)
+                    VStack(alignment: .leading, spacing: 16) {
+                        HStack {
+                            Text("Comments \(post.comments)").font(.system(size: 18))
+                            Spacer()
+                            Button("Hot") { newest = false }.foregroundStyle(newest ? GameHub.secondary : Color.orange)
+                            Text("·").foregroundStyle(GameHub.secondary)
+                            Button("Newest") { newest = true }.foregroundStyle(newest ? Color.orange : GameHub.secondary)
+                        }
+                        .font(.system(size: 16)).buttonStyle(.plain)
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 22) {
+                                ForEach(comments ?? []) { c in comment(c) }
+                                Text(comments == nil ? "Loading…" : "No more comments").font(.system(size: 14)).foregroundStyle(GameHub.secondary)
+                                    .frame(maxWidth: .infinity)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 44).padding(.vertical, 8)
+                    .frame(width: 520)
+                }
+            }
+        }
+        .foregroundStyle(.white)
+        .preferredColorScheme(.dark)
+        .task(id: newest) { comments = (try? await model.service?.comments(post, newest: newest)) ?? [] }
+    }
+
+    private func comment(_ c: CommunityComment) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            AsyncImage(url: c.avatar) { $0.resizable().aspectRatio(contentMode: .fill) } placeholder: { Circle().fill(Color.white.opacity(0.1)) }
+                .frame(width: 44, height: 44).clipShape(Circle())
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Text(c.author).foregroundStyle(GameHub.secondary)
+                    if c.byAuthor {
+                        Text("Author").font(.system(size: 12)).foregroundStyle(Color.orange)
+                            .padding(.horizontal, 5).padding(.vertical, 2).background(RoundedRectangle(cornerRadius: 4).fill(Color.orange.opacity(0.15)))
+                    }
+                }
+                .font(.system(size: 16))
+                Text(c.text).font(.system(size: 17))
+                HStack(spacing: 14) {
+                    Text(c.time).foregroundStyle(GameHub.secondary)
+                    Text("Reply")
+                    Spacer()
+                    Label("\(c.likes)", systemImage: "heart").foregroundStyle(GameHub.secondary)
+                }
+                .font(.system(size: 14))
+                if c.replies > 0 {
+                    HStack(spacing: 8) {
+                        Rectangle().fill(GameHub.secondary).frame(width: 28, height: 1)
+                        Text("\(c.replies) replies"); Image(systemName: "chevron.down")
+                    }
+                    .font(.system(size: 14)).foregroundStyle(GameHub.secondary)
+                }
+            }
+        }
     }
 }

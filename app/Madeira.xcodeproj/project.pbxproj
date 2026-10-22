@@ -141,6 +141,7 @@
 		A10009C2 /* GameHubHome.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20009C2 /* GameHubHome.swift */; };
 		A10009C3 /* GameHubCommunity.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20009C3 /* GameHubCommunity.swift */; };
 		A10009C4 /* GameHubPages.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20009C4 /* GameHubPages.swift */; };
+		A10009C8 /* GameHubSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20009C8 /* GameHubSettings.swift */; };
 		A10009C7 /* GameImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20009C7 /* GameImport.swift */; };
 		A10009C6 /* GameHubLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20009C6 /* GameHubLaunch.swift */; };
 		A10009C5 /* GameArtwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20009C5 /* GameArtwork.swift */; };
@@ -336,6 +337,7 @@
 		A20009C2 /* GameHubHome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameHubHome.swift; sourceTree = "<group>"; };
 		A20009C3 /* GameHubCommunity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameHubCommunity.swift; sourceTree = "<group>"; };
 		A20009C4 /* GameHubPages.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameHubPages.swift; sourceTree = "<group>"; };
+		A20009C8 /* GameHubSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameHubSettings.swift; sourceTree = "<group>"; };
 		A20009C7 /* GameImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameImport.swift; sourceTree = "<group>"; };
 		A20009C6 /* GameHubLaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameHubLaunch.swift; sourceTree = "<group>"; };
 		A20009C5 /* GameArtwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameArtwork.swift; sourceTree = "<group>"; };
@@ -475,6 +477,7 @@
 				A20009C2 /* GameHubHome.swift */,
 				A20009C3 /* GameHubCommunity.swift */,
 				A20009C4 /* GameHubPages.swift */,
+				A20009C8 /* GameHubSettings.swift */,
 				A20009C7 /* GameImport.swift */,
 				A20009C6 /* GameHubLaunch.swift */,
 				A20009C5 /* GameArtwork.swift */,
@@ -811,6 +814,7 @@
 				A10009C2 /* GameHubHome.swift in Sources */,
 				A10009C3 /* GameHubCommunity.swift in Sources */,
 				A10009C4 /* GameHubPages.swift in Sources */,
+				A10009C8 /* GameHubSettings.swift in Sources */,
 				A10009C7 /* GameImport.swift in Sources */,
 				A10009C6 /* GameHubLaunch.swift in Sources */,
 				A10009C5 /* GameArtwork.swift in Sources */,

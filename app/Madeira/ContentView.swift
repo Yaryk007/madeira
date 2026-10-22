@@ -4555,14 +4555,14 @@ struct TouchControlButton: View {
         let old = Set(stickKeys(stickDir, q)), new = Set(stickKeys(next, q))
         for vk in old.subtracting(new) { winios_post_key(vk, 0) }
         for vk in new.subtracting(old) { winios_post_key(vk, 1) }
-        if stickDir == -1, next != -1 { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
+        if stickDir == -1, next != -1, GameHubPrefs.buttonHaptics { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
         stickDir = next
     }
 
     /// Haptic on the DOWN edge only — a held movement key would otherwise buzz
     /// continuously for as long as you walk.
     private func press(_ down: Bool) {
-        if down { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
+        if down, GameHubPrefs.buttonHaptics { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
         switch control.action {
         case .key(let vk):
             winios_post_key(vk, down ? 1 : 0)
