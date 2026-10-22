@@ -672,6 +672,18 @@ enum ConsoleSettingsCategory: String, CaseIterable, Identifiable {
         case .about: return "info.circle.fill"
         }
     }
+    /// GamehubiOS's Settings draws outline icons, as GameHub does.
+    var outlineIcon: String {
+        switch self {
+        case .controller: return "gamecontroller"
+        case .pointer: return "cursorarrow"
+        case .interface: return "iphone.gen3"
+        case .system: return "bolt"
+        case .steam: return "cloud"
+        case .storage: return "internaldrive"
+        case .about: return "info.circle"
+        }
+    }
 }
 
 /// One option on the console Settings page.
@@ -719,6 +731,8 @@ struct ConsoleSettingsPage: View {
     let startDock: (DockGame, Bool) -> Void
     let addGame: () -> Void
     let exit: () -> Void
+    /// GamehubiOS (GameHubHome.swift): GameHub's look, under its own "‹ Settings" header.
+    var gamehub = false
     @ObservedObject private var input = InputSettings.shared
     @ObservedObject private var jitState = LibraryJITState.shared
     @AppStorage(ConsoleHome.key) private var consoleHome = true
@@ -742,7 +756,8 @@ struct ConsoleSettingsPage: View {
         GeometryReader { geo in
             if geo.size.width >= 640 {
                 HStack(alignment: .top, spacing: 22) {
-                    categoryList.frame(width: min(250, geo.size.width * 0.3))
+                    (gamehub ? AnyView(gamehubCategoryList) : AnyView(categoryList))
+                        .frame(width: gamehub ? min(290, geo.size.width * 0.3) : min(250, geo.size.width * 0.3))
                     optionList
                 }
                 .padding(.horizontal, 24).padding(.vertical, 14)
@@ -807,6 +822,38 @@ struct ConsoleSettingsPage: View {
         }
     }
 
+    /// GameHub's category card: outline icons, a chevron on every row, a bar
+    /// beside the selected one, hairlines between them.
+    private var gamehubCategoryList: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 0) {
+                ForEach(Array(categories.enumerated()), id: \.offset) { i, c in
+                    let selected = i == category
+                    Button { select(category: i) } label: {
+                        HStack(spacing: 14) {
+                            Capsule().fill(selected ? Color.white : .clear).frame(width: 3, height: 16)
+                            Image(systemName: c.outlineIcon).font(.system(size: 19)).frame(width: 26)
+                            Text(c.title).font(.system(size: 17))
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right").font(.system(size: 13, weight: .medium)).foregroundStyle(.white.opacity(0.55))
+                        }
+                        .padding(.leading, 6).padding(.trailing, 18).frame(height: 62)
+                        .foregroundStyle(selected ? Color.white : Color.white.opacity(0.62))
+                        .background(selected && column == 0 ? Color.white.opacity(0.07) : .clear)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    if i < categories.count - 1 {
+                        Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1).padding(.leading, 20).padding(.trailing, 18)
+                    }
+                }
+            }
+            .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Color.white.opacity(0.05)))
+            .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Color.white.opacity(0.08)))
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+    }
+
     private func categoryChip(_ i: Int, _ c: ConsoleSettingsCategory) -> some View {
         Button { select(category: i) } label: {
             Label(c.title, systemImage: c.icon).font(.system(size: 13, weight: .bold))
@@ -820,8 +867,12 @@ struct ConsoleSettingsPage: View {
     private var optionList: some View {
         let rows = self.rows
         return VStack(alignment: .leading, spacing: 10) {
-            Text(currentCategory.title.uppercased()).font(.system(size: 12, weight: .heavy)).tracking(2)
-                .foregroundStyle(accent).padding(.top, 12).padding(.leading, 4)
+            if gamehub {
+                Text(currentCategory.title).font(.system(size: 20, weight: .medium)).padding(.top, 10).padding(.leading, 4)
+            } else {
+                Text(currentCategory.title.uppercased()).font(.system(size: 12, weight: .heavy)).tracking(2)
+                    .foregroundStyle(accent).padding(.top, 12).padding(.leading, 4)
+            }
             ScrollViewReader { reader in
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 8) {

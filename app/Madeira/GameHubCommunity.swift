@@ -16,6 +16,8 @@ struct CommunityPost: Identifiable, Hashable {
     var body: String
     var tags: [String]
     var images: [URL]
+    /// GameHub's own account: an "Official" badge, and its tags as chips.
+    var official = false
 }
 
 struct CommunitySection: Identifiable, Hashable {
@@ -135,17 +137,19 @@ struct GameHubCommunityPage: View {
     @ViewBuilder private var posts: some View {
         switch model.state {
         case .notConnected:
-            GameHubEmptyState(icon: "text.bubble", title: "Community isn't connected",
-                              message: "This build of GamehubiOS has no connection to GameHub's community servers yet, so there are no posts to show.")
+            GameHubEmptyState(title: model.feed == .following ? "Nothing from your follows yet" : "Community isn't connected",
+                              message: "This build of GamehubiOS has no connection to GameHub's community servers yet, so there are no posts to show.",
+                              action: model.feed == .following ? ("Discover", { withAnimation(ConsoleHomeView.motion) { model.feed = .circle } }) : nil)
         case .loading where model.posts.isEmpty:
             ProgressView().tint(.white).frame(maxWidth: .infinity, maxHeight: .infinity)
         case .failed(let message) where model.posts.isEmpty:
-            GameHubEmptyState(icon: "wifi.exclamationmark", title: "Couldn't load posts", message: message,
+            GameHubEmptyState(title: "Couldn't load posts", message: message,
                               action: ("Try again", { Task { await model.reload() } }))
         default:
             if model.posts.isEmpty {
-                GameHubEmptyState(icon: "tray", title: model.feed == .following ? "Nothing from your follows yet" : "No posts yet",
-                                  message: model.feed == .following ? "Follow creators you like, and their latest posts will show up here." : "")
+                GameHubEmptyState(title: model.feed == .following ? "Nothing from your follows yet" : "No posts yet",
+                                  message: model.feed == .following ? "Follow creators you like, and their latest posts will show up here." : "",
+                                  action: model.feed == .following ? ("Discover", { withAnimation(ConsoleHomeView.motion) { model.feed = .circle } }) : nil)
             } else {
                 ScrollView {
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: 16, alignment: .top), GridItem(.flexible(), spacing: 16, alignment: .top)],
@@ -174,14 +178,35 @@ struct CommunityPostCard: View {
                 }
                 .frame(width: 40, height: 40).clipShape(Circle())
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(post.author).font(.system(size: 17, weight: .medium)).lineLimit(1)
+                    HStack(spacing: 8) {
+                        Text(post.author).font(.system(size: 17, weight: .medium)).lineLimit(1)
+                        if post.official {
+                            Text("Official").font(.system(size: 11, weight: .medium)).italic()
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(RoundedRectangle(cornerRadius: 4).fill(GameHub.postBlue))
+                        }
+                    }
                     Text(post.activity).font(.system(size: 13)).foregroundStyle(GameHub.secondary)
                 }
                 Spacer()
                 Image(systemName: "ellipsis").font(.system(size: 15, weight: .bold)).foregroundStyle(GameHub.secondary)
             }
             if !post.title.isEmpty { Text(post.title).font(.system(size: 17, weight: .medium)).lineLimit(2) }
-            if !post.body.isEmpty || !post.tags.isEmpty {
+            if post.official {
+                if !post.body.isEmpty {
+                    Text(post.body).font(.system(size: 15)).foregroundStyle(Color.white.opacity(0.85)).lineLimit(3)
+                }
+                if !post.tags.isEmpty {
+                    // The official account's tags are chips, two to a row at most.
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 10, alignment: .leading)], alignment: .leading, spacing: 10) {
+                        ForEach(post.tags, id: \.self) { tag in
+                            Text("#" + tag).font(.system(size: 14)).foregroundStyle(GameHub.link).lineLimit(1)
+                                .padding(.horizontal, 10).frame(height: 30)
+                                .background(RoundedRectangle(cornerRadius: 6).fill(GameHub.link.opacity(0.14)))
+                        }
+                    }
+                }
+            } else if !post.body.isEmpty || !post.tags.isEmpty {
                 (Text(post.body) + Text(post.tags.map { " #" + $0 }.joined()).foregroundColor(GameHub.link))
                     .font(.system(size: 15)).foregroundStyle(Color.white.opacity(0.85)).lineLimit(4)
             }
