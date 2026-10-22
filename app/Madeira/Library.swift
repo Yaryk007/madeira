@@ -133,7 +133,7 @@ final class LibraryController: ObservableObject, @unchecked Sendable {
         // Reserve the Back+Start chord in gameplay, leaving ordinary Start intact.
         if !own, buttons & 0x30 == 0x30, pressed & 0x30 != 0 { command = "menu" }
         if own {
-            for (mask, name): (UInt16, String) in [(1, "up"), (2, "down"), (4, "left"), (8, "right"), (0x1000, "accept"), (0x2000, "back"), (0x4000, "x"), (0x8000, "add"), (0x10, "menu"), (0x100, "tabPrev"), (0x200, "tab")] {
+            for (mask, name): (UInt16, String) in [(1, "up"), (2, "down"), (4, "left"), (8, "right"), (0x1000, "accept"), (0x2000, "back"), (0x4000, "x"), (0x8000, "add"), (0x10, "menu"), (0x100, "tabPrev"), (0x200, "tab"), (0x20, "view"), (0x40, "l3"), (0x80, "r3")] {
                 if pressed & mask != 0 { command = name; break }
             }
         }
@@ -4062,6 +4062,8 @@ struct LibraryHUD: View {
             if !open { model.saveCurrentProfile() }
         }
         .onReceive(LibraryController.shared.commands) { command in
+            // The GameHub keyboard has the controller while it is up.
+            if LibraryKeyboard.visible { return }
             if command == "menu" { if model.menu { model.menu = false } else { model.showMenu() } }
             else if command == "back", model.menu { if bindsPage { bindsPage = false } else { model.menu = false } }
         }
@@ -4371,9 +4373,34 @@ enum LibraryKeyboard {
     static var window: UIWindow?
     static weak var previous: UIWindow?
     static var input: LibraryKeyInput?
-    static func show() {
+    /// GamehubiOS: the GameHub keyboard's panel, in window coordinates (GameHubKeyboardWindow).
+    static var panel = CGRect.zero
+    static var visible: Bool { window != nil }
+    /// The GameHub keyboard took the controller from the game (LibraryController).
+    private static var ownsPad = false
+    /// GamehubiOS: GameHub's on-screen keyboard (GameHubKeyboard.swift); a second
+    /// call closes it. env.GAMEHUB_KEYBOARD = system brings back the iOS keyboard.
+    @MainActor static func show() {
         // MADEIRA_FRONTEND_KEYBOARD=0: the game view's own keyboard instead.
         if !MadeiraConfig.flag("MADEIRA_FRONTEND_KEYBOARD") { MetalBackedView.toggleKeyboard(); return }
+        if window != nil { hide(); return }
+        if MadeiraConfig.get("env.GAMEHUB_KEYBOARD") != "system" {
+            guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })
+                .first(where: { $0.activationState == .foregroundActive }) else { return }
+            let w = GameHubKeyboardWindow(windowScene: scene)
+            w.windowLevel = .normal + 102; w.backgroundColor = .clear
+            GameHubKeyboardModel.shared.reset()
+            let host = UIHostingController(rootView: GameHubKeyboardView())
+            host.view.backgroundColor = .clear
+            w.rootViewController = host
+            w.isHidden = false        // never key: the game keeps its window
+            window = w
+            // The controller types on the keyboard, not in the game, while it is up.
+            ownsPad = true
+            LibraryController.shared.configure(enabled: LibraryModel.shared.enabled, ownsInput: true)
+            fputs("[frontend-keyboard] GameHub keyboard shown\n", stderr)
+            return
+        }
         guard window == nil, let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first(where: { $0.activationState == .foregroundActive }) else { return }
         previous = scene.windows.first(where: { $0.isKeyWindow })
         let w = LibraryKeyboardWindow(windowScene: scene)
@@ -4385,10 +4412,18 @@ enum LibraryKeyboard {
         w.makeKeyAndVisible(); v.becomeFirstResponder()
         fputs("[frontend-keyboard] key-window input activated\n", stderr)
     }
-    static func hide() {
+    /// Callers are on the main thread (the library model and its views).
+    static func hide() { MainActor.assumeIsolated { hideOnMain() } }
+    @MainActor private static func hideOnMain() {
         if window != nil { fputs("[frontend-keyboard] key-window input deactivated\n", stderr) }
+        GameHubKeyboardModel.shared.releaseModifiers()
         input?.releaseModifiers(); input?.resignFirstResponder(); window?.isHidden = true
-        window = nil; input = nil; previous?.makeKey(); previous = nil
+        window = nil; input = nil; previous?.makeKey(); previous = nil; panel = .zero
+        if ownsPad {
+            ownsPad = false
+            let model = LibraryModel.shared
+            LibraryController.shared.configure(enabled: model.enabled, ownsInput: model.menu || model.current == nil)
+        }
     }
 }
 final class LibraryKeyboardWindow: UIWindow {

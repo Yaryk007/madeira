@@ -193,6 +193,13 @@ struct GameHubSettingsPage: View {
             case .peripherals: devices.padding(.bottom, 18)
             case .storage: storageCard.padding(.bottom, 14)
             case .downloads: GameHubDownloadsPage().frame(minHeight: 300)
+            case .about:
+                VStack(spacing: 10) {
+                    GameHubLogo(kind: .wordmark).frame(height: 46)
+                    Text("GamehubiOS").font(.system(size: 13)).foregroundStyle(GameHub.secondary)
+                }
+                .frame(maxWidth: .infinity).padding(.vertical, 28)
+                .background(GameHubCard(cornerRadius: 22)).padding(.bottom, 18)
             default: EmptyView()
             }
             GameHubRowGroups(items: items, focused: row)

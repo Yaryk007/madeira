@@ -861,6 +861,12 @@ jobs:
       - name: Stage licence copies
         run: bash build/stage-licenses.sh
 
+      # GameHub's logo and icons are XiaoJi's artwork, so the repository does not
+      # carry them: they come from the official APK at build time. Without them
+      # the app falls back to SF Symbols.
+      - name: GameHub logo and icons (official APK)
+        run: python3 tools/gamehub-assets.py || echo "::warning::GameHub assets unavailable; the app uses SF Symbols"
+
       - name: Stamp version 0.1.${{ github.run_number }}
         run: |
           /usr/libexec/PlistBuddy \

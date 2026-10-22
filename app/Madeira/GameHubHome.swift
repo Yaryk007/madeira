@@ -39,6 +39,18 @@ enum GameHubTab: Int, CaseIterable, Identifiable {
         case .profile: return "Profile"
         }
     }
+    /// GameHub's own nav icon (GameHubAssets.swift).
+    func asset(selected: Bool) -> String {
+        let base: String
+        switch self {
+        case .library: base = "gh-nav-library"
+        case .community: base = "gh-nav-community"
+        case .home: base = "gh-nav-home"
+        case .ranking: base = "gh-nav-ranking"
+        case .profile: base = "gh-nav-profile"
+        }
+        return selected ? base + "-on" : base
+    }
     func icon(selected: Bool) -> String {
         switch self {
         case .library: return selected ? "square.grid.2x2.fill" : "square.grid.2x2"
@@ -82,6 +94,18 @@ enum GameHubAction: Hashable {
         case .scan: return "viewfinder"
         case .downloads: return "square.and.arrow.down"
         case .settings: return "gearshape"
+        }
+    }
+    /// GameHub's own icon (GameHubAssets.swift).
+    var asset: String {
+        switch self {
+        case .search: return "gh-search"
+        case .layoutSwitch: return "gh-layout-switch"
+        case .notifications: return "gh-bell"
+        case .controller: return "gh-gamepad"
+        case .scan: return "gh-qr"
+        case .downloads: return "gh-download"
+        case .settings: return "gh-settings"
         }
     }
     var label: String {
@@ -187,6 +211,7 @@ struct GameHubHomeView: View {
             if let dialog {
                 GameHubDialog(content: dialog) { self.dialog = nil }.transition(.opacity)
             }
+            GameHubSplash()
         }
         .animation(.easeInOut(duration: 0.18), value: page)
         .animation(.easeInOut(duration: 0.15), value: dialog)
@@ -514,7 +539,7 @@ struct GameHubTopBar: View {
                 ForEach(GameHubTab.allCases) { t in
                     Button { select(t) } label: {
                         HStack(spacing: 9) {
-                            Image(systemName: t.icon(selected: t == tab)).font(.system(size: 21, weight: .medium))
+                            GHImage(name: t.asset(selected: t == tab), fallback: t.icon(selected: t == tab)).frame(width: 25, height: 25)
                             if t == tab { Text(t.title).font(.system(size: 20, weight: .medium)).fixedSize() }
                         }
                         .foregroundStyle(t == tab ? Color.white : Color.white.opacity(0.88))
@@ -531,7 +556,8 @@ struct GameHubTopBar: View {
             HStack(spacing: 30) {
                 ForEach(actions, id: \.self) { action in
                     Button { perform(action) } label: {
-                        if action == .layoutSwitch { GameHubLayoutSwitchIcon().frame(width: 22, height: 22) }
+                        if GHAsset.has(action.asset) { GHImage(name: action.asset).frame(width: 25, height: 25) }
+                        else if action == .layoutSwitch { GameHubLayoutSwitchIcon().frame(width: 22, height: 22) }
                         else if action == .controller, pads.name != nil { Image(systemName: "gamecontroller.fill") }
                         else { Image(systemName: action.icon) }
                     }
@@ -584,14 +610,24 @@ struct GameHubStatus: View {
                     .monospacedDigit()
                     .onChange(of: context.date) { _, _ in battery = UIDevice.current.batteryLevel }
             }
-            Image(systemName: network.wifi ? "wifi" : network.online ? "cellularbars" : "wifi.slash")
-                .font(.system(size: 17, weight: .semibold))
+            if GHAsset.has("gh-wifi") {
+                GHImage(name: network.wifi ? "gh-wifi" : network.online ? "gh-5g" : "gh-no-network").frame(width: 24, height: 24)
+            } else {
+                Image(systemName: network.wifi ? "wifi" : network.online ? "cellularbars" : "wifi.slash")
+                    .font(.system(size: 17, weight: .semibold))
+            }
             if battery >= 0 {
                 HStack(spacing: 4) {
-                    Image(systemName: battery > 0.9 ? "battery.100percent" : battery > 0.6 ? "battery.75percent"
-                          : battery > 0.35 ? "battery.50percent" : battery > 0.15 ? "battery.25percent" : "battery.0percent")
-                        .font(.system(size: 20))
-                        .foregroundStyle(battery <= 0.15 ? Color.red : Color.white)
+                    if GHAsset.has("gh-battery-5") {
+                        GHImage(name: "gh-battery-\(battery > 0.8 ? 5 : battery > 0.6 ? 4 : battery > 0.4 ? 3 : battery > 0.2 ? 2 : 1)")
+                            .frame(width: 26, height: 26)
+                            .colorMultiply(battery <= 0.15 ? .red : .white)
+                    } else {
+                        Image(systemName: battery > 0.9 ? "battery.100percent" : battery > 0.6 ? "battery.75percent"
+                              : battery > 0.35 ? "battery.50percent" : battery > 0.15 ? "battery.25percent" : "battery.0percent")
+                            .font(.system(size: 20))
+                            .foregroundStyle(battery <= 0.15 ? Color.red : Color.white)
+                    }
                     Text("\(Int((battery * 100).rounded()))%").monospacedDigit()
                 }
             }
@@ -880,7 +916,22 @@ struct GameHubFirstRunPage: View {
 
 struct GameHubShelfIcon: View {
     let shelf: GameHubShelf
+    private var asset: String {
+        switch shelf {
+        case .myGames: return "gh-entry-mygames"
+        case .steam: return "gh-entry-steam"
+        case .epic: return "gh-entry-epic"
+        case .importGame: return "gh-import"
+        }
+    }
     var body: some View {
+        if GHAsset.has(asset) {
+            GHImage(name: asset).frame(width: 34, height: 34)
+        } else {
+            drawn
+        }
+    }
+    @ViewBuilder private var drawn: some View {
         switch shelf {
         case .myGames:
             // Four soft squares, as GameHub's "My Games".

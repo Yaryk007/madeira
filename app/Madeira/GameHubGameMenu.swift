@@ -318,6 +318,13 @@ struct GameHubGameMenu: View {
 struct GameHubShoulderHint: View {
     let label: String
     var body: some View {
+        if GHAsset.has(label == "LB" ? "gh-lb" : "gh-rb") {
+            GHImage(name: label == "LB" ? "gh-lb" : "gh-rb").frame(width: 24, height: 24).opacity(0.7).accessibilityHidden(true)
+        } else {
+            drawn
+        }
+    }
+    private var drawn: some View {
         Text(label).font(.system(size: 10, weight: .bold))
             .foregroundStyle(.white.opacity(0.55))
             .frame(width: 28, height: 18)

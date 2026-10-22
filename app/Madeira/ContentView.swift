@@ -4040,6 +4040,10 @@ final class ControlsWindow: UIWindow {
             guard m.hitsInteractive(point, in: bounds, topBar: false) else { return nil }
             return super.hitTest(point, with: event)
         }
+        // GamehubiOS: the home after a game (no session). The window outlives the
+        // session, and its controls took the drags meant for the home's lists
+        // (Settings would not scroll). Only the control editor keeps it.
+        if library.enabled && !m.editing { return nil }
         // Portrait draws nothing here, so it must consume nothing.
         guard bounds.width > bounds.height else { return nil }
         guard m.hitsInteractive(point, in: bounds) else { return nil }
@@ -4088,7 +4092,8 @@ struct TouchControlsOverlay: View {
             // HUD (menu button, starting screen, in-game menu) replaces the top
             // bar; the controls hide while its menu or starting screen is up.
             let session = library.current != nil
-            let landscape = geo.size.width > geo.size.height || session
+            // GamehubiOS: nothing over the home between games, unless editing controls.
+            let landscape = (geo.size.width > geo.size.height && (!library.enabled || m.editing)) || session
             ZStack(alignment: .top) {
                 if landscape {
                     if (m.visible || m.editing) && !library.blocksGameplayTouch {

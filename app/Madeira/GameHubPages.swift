@@ -10,8 +10,11 @@ import UIKit
 /// GameHub's empty-state mark: three bars and an exclamation mark.
 struct GameHubEmptyIcon: View {
     var body: some View {
+        if GHAsset.has("gh-empty") { GHImage(name: "gh-empty").frame(width: 64, height: 64) } else { drawn }
+    }
+    private var drawn: some View {
         let fill = LinearGradient(colors: [Color(white: 0.5), Color(white: 0.32)], startPoint: .top, endPoint: .bottom)
-        HStack(alignment: .bottom, spacing: 5) {
+        return HStack(alignment: .bottom, spacing: 5) {
             VStack(alignment: .leading, spacing: 5) {
                 RoundedRectangle(cornerRadius: 3).fill(fill).frame(width: 52, height: 9)
                 RoundedRectangle(cornerRadius: 3).fill(fill).frame(width: 37, height: 9)
@@ -490,9 +493,13 @@ struct GameHubProfilePage: View {
             Button(action: signIn) {
                 HStack(spacing: 18) {
                     ZStack {
-                        Circle().fill(LinearGradient(colors: [Color(red: 0.2, green: 0.55, blue: 0.95), Color(red: 0.95, green: 0.45, blue: 0.25)],
-                                                     startPoint: .topLeading, endPoint: .bottomTrailing))
-                        Image(systemName: "face.smiling.inverse").font(.system(size: 40)).foregroundStyle(.white)
+                        if GHAsset.has("gh-avatar") {
+                            GHImage(name: "gh-avatar").clipShape(Circle())
+                        } else {
+                            Circle().fill(LinearGradient(colors: [Color(red: 0.2, green: 0.55, blue: 0.95), Color(red: 0.95, green: 0.45, blue: 0.25)],
+                                                         startPoint: .topLeading, endPoint: .bottomTrailing))
+                            Image(systemName: "face.smiling.inverse").font(.system(size: 40)).foregroundStyle(.white)
+                        }
                     }
                     .frame(width: 64, height: 64)
                     if let name {
@@ -512,7 +519,8 @@ struct GameHubProfilePage: View {
             .buttonStyle(.plain)
             if name == nil {
                 HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Color(red: 1, green: 0.8, blue: 0.2))
+                    GHImage(name: "gh-guest-warning", fallback: "exclamationmark.triangle.fill").frame(width: 18, height: 18)
+                        .foregroundStyle(Color(red: 1, green: 0.8, blue: 0.2))
                     Text("Steam Cloud saves and Steam games are unavailable until you sign in to Steam")
                         .foregroundStyle(GameHub.warning)
                 }
@@ -586,7 +594,7 @@ struct GameHubProfilePage: View {
 
     private var socialCard: some View {
         VStack(spacing: 18) {
-            Image(systemName: "ellipsis.message.fill").font(.system(size: 46))
+            GHImage(name: "gh-guest-social", fallback: "ellipsis.message.fill").frame(width: 50, height: 50)
                 .foregroundStyle(LinearGradient(colors: [Color(red: 0.45, green: 0.9, blue: 0.6), Color(red: 0.25, green: 0.7, blue: 0.45)],
                                                 startPoint: .top, endPoint: .bottom))
             Text(communityModel.account == nil ? "Community isn't connected" : "Community")
