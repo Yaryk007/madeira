@@ -272,14 +272,19 @@ struct GameImportOverlay: View {
     var body: some View {
         ZStack {
             if model.menu {
-                card(title: "Import Game", close: { model.menu = false }) {
-                    HStack(spacing: 16) {
-                        option("Game (.exe)", icon: "app.badge.checkmark") { model.menu = false; model.picker = .exe }
-                        option("Game folder", icon: "folder.badge.plus") { model.menu = false; model.picker = .folder(start: nil, exeName: nil) }
-                        option("Browse drive_c", icon: "internaldrive") { model.menu = false; browse() }
+                // GameHub's Add Game: a row per source, an icon tile, a title and a line.
+                card(title: "Add Game", leading: true, close: { model.menu = false }) {
+                    VStack(spacing: 11) {
+                        addRow("Local Game", detail: "Choose a local game executable", icon: "plus") {
+                            model.menu = false; model.picker = .exe
+                        }
+                        addRow("Game Folder", detail: "Choose a game folder; GameHub copies it in", icon: "folder") {
+                            model.menu = false; model.picker = .folder(start: nil, exeName: nil)
+                        }
+                        addRow("drive_c", detail: "Add a program already in GameHub's drive C", icon: "internaldrive") {
+                            model.menu = false; browse()
+                        }
                     }
-                    Text("The game is copied into GameHub, so it can stay where it is now.")
-                        .font(.system(size: 13)).foregroundStyle(GameHub.secondary).padding(.top, 14)
                 }
             } else if let exe = model.pendingExe {
                 card(title: "Import \(exe.lastPathComponent)", close: { model.pendingExe = nil }) {
@@ -341,16 +346,16 @@ struct GameImportOverlay: View {
         } message: { Text(model.error ?? "") }
     }
 
-    private func card<Content: View>(title: String, close: (() -> Void)?, @ViewBuilder content: () -> Content) -> some View {
+    private func card<Content: View>(title: String, leading: Bool = false, close: (() -> Void)?, @ViewBuilder content: () -> Content) -> some View {
         ZStack {
-            Color.black.opacity(0.55).ignoresSafeArea().onTapGesture { close?() }
-            VStack(spacing: 18) {
-                Text(title).font(.system(size: 19, weight: .medium)).lineLimit(1).padding(.horizontal, 30)
+            Color.black.opacity(0.5).ignoresSafeArea().onTapGesture { close?() }
+            VStack(alignment: leading ? .leading : .center, spacing: leading ? 16 : 18) {
+                Text(title).font(.system(size: leading ? 20 : 19, weight: leading ? .bold : .medium)).lineLimit(1)
+                    .padding(.trailing, 30).padding(.leading, leading ? 0 : 30)
                 content()
             }
-            .padding(.horizontal, 24).padding(.vertical, 22)
-            .background(RoundedRectangle(cornerRadius: 24, style: .continuous).fill(Color(white: 0.13)))
-            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(Color.white.opacity(0.08)))
+            .padding(.horizontal, leading ? 15 : 24).padding(.top, leading ? 18 : 22).padding(.bottom, leading ? 15 : 22)
+            .background(GameHubFrost(cornerRadius: 22, tint: Color(white: 0.17).opacity(0.85)))
             .overlay(alignment: .topTrailing) {
                 if let close {
                     Button(action: close) { Image(systemName: "xmark").font(.system(size: 16, weight: .light)).padding(16) }
@@ -359,6 +364,25 @@ struct GameImportOverlay: View {
             }
         }
         .transition(.opacity)
+    }
+
+    private func addRow(_ title: String, detail: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: icon).font(.system(size: 21, weight: .medium))
+                    .frame(width: 42, height: 42)
+                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.white.opacity(0.14)))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title).font(.system(size: 17, weight: .bold))
+                    Text(detail).font(.system(size: 14)).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14).frame(width: 303, height: 70)
+            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.08)))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white.opacity(0.1)))
+        }
+        .buttonStyle(GameHubPressStyle())
     }
 
     private func option(_ title: String, icon: String, action: @escaping () -> Void) -> some View {

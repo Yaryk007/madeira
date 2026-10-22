@@ -113,27 +113,33 @@ struct GameHubDialog: View {
 struct GameHubFullPage<Content: View>: View {
     let title: String
     let glow: Color
+    /// Where the glow sits: Settings' is in the middle, Download Manager's top left.
+    var glowCenter: UnitPoint = .topLeading
     let close: () -> Void
     @ViewBuilder let content: () -> Content
 
     var body: some View {
         ZStack {
-            GameHub.background.ignoresSafeArea()
-            RadialGradient(colors: [glow.opacity(0.75), .clear], center: .topLeading, startRadius: 0, endRadius: 520).ignoresSafeArea()
-            RadialGradient(colors: [Color(red: 0.08, green: 0.16, blue: 0.22).opacity(0.7), .clear], center: .bottomTrailing,
-                           startRadius: 0, endRadius: 480).ignoresSafeArea()
-            VStack(alignment: .leading, spacing: 8) {
+            Color(red: 14 / 255, green: 14 / 255, blue: 16 / 255).ignoresSafeArea()
+            RadialGradient(colors: [glow, .clear], center: glowCenter, startRadius: 0, endRadius: glowCenter == .center ? 430 : 520).ignoresSafeArea()
+            if glowCenter != .center {
+                RadialGradient(colors: [Color(red: 0.08, green: 0.16, blue: 0.22).opacity(0.7), .clear], center: .bottomTrailing,
+                               startRadius: 0, endRadius: 480).ignoresSafeArea()
+            }
+            VStack(alignment: .leading, spacing: 0) {
+                // GameHub's page title: ‹ and the name in bold, 27 pt down.
                 Button(action: close) {
-                    HStack(spacing: 14) {
-                        Image(systemName: "chevron.left").font(.system(size: 22, weight: .regular))
-                        Text(title).font(.system(size: 25, weight: .regular))
+                    HStack(spacing: 10) {
+                        Image(systemName: "chevron.left").font(.system(size: 20, weight: .semibold))
+                        Text(title).font(.system(size: 24, weight: .bold))
                     }
-                    .frame(height: 50).contentShape(Rectangle())
+                    .frame(height: 54).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .padding(.horizontal, 44).padding(.top, 6)
+                .padding(.leading, 61)
                 content().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .ignoresSafeArea(.container, edges: .horizontal)
         }
     }
 }
@@ -234,7 +240,7 @@ struct GameHubHomePage: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(.horizontal, 34)
+        .padding(.horizontal, GameHub.margin)
         .task { await store.load() }
     }
 
@@ -374,85 +380,157 @@ struct GameHubRankingPage: View {
     let open: (Int) -> Void
     @ObservedObject private var ranking = GameHubRankingModel.shared
     @ObservedObject private var steam = SteamOwnedLibrary.shared
+    @State private var filter = 0
 
-    private var hot: [GameHubRankingModel.Rank] { Array(ranking.ranks.prefix(20)) }
-    private var soaring: [GameHubRankingModel.Rank] {
-        Array(ranking.ranks.filter { $0.lastWeek > 0 && $0.lastWeek > $0.rank }
-            .sorted { ($0.lastWeek - $0.rank) > ($1.lastWeek - $1.rank) }.prefix(20))
-    }
+    private struct Item: Identifiable { let id: Int; let place: Int; let name: String; let detail: String; let value: String }
+
+    /// GameHub's chips over Steam's charts: most played now, climbing this week, and yours.
+    private var filters: [String] { mine.isEmpty ? ["Recently Hot", "Rising"] : ["Recently Hot", "Rising", "Your Games"] }
     private var mine: [(Int, String)] {
         steam.playtime.filter { $0.value.minutes > 0 }.sorted { $0.value.minutes > $1.value.minutes }.prefix(20)
             .map { ($0.key, steam.game($0.key)?.name ?? "App \($0.key)") }
     }
+    private var items: [Item] {
+        switch filter {
+        case 1:
+            return ranking.ranks.filter { $0.lastWeek > 0 && $0.lastWeek > $0.rank }
+                .sorted { ($0.lastWeek - $0.rank) > ($1.lastWeek - $1.rank) }.prefix(20).enumerated()
+                .map { i, r in Item(id: r.appID, place: i + 1, name: ranking.names[r.appID] ?? "App \(r.appID)",
+                                    detail: "Up \(r.lastWeek - r.rank) places this week", value: "▲\(r.lastWeek - r.rank)") }
+        case 2:
+            return mine.enumerated().map { i, item in
+                Item(id: item.0, place: i + 1, name: item.1, detail: steam.playtime[item.0]?.played ?? "", value: "") }
+        default:
+            return ranking.ranks.prefix(30).map { r in
+                Item(id: r.appID, place: r.rank, name: ranking.names[r.appID] ?? "App \(r.appID)",
+                     detail: r.peak > 0 ? "\(r.peak.formatted()) playing at peak" : "Most played on Steam",
+                     value: r.peak > 0 ? Self.compact(r.peak) : "") }
+        }
+    }
 
     var body: some View {
-        Group {
+        ZStack {
+            // The warm backdrop is GameHubHomeView's (behind the top bar too).
             if ranking.ranks.isEmpty, let error = ranking.error {
                 GameHubEmptyState(title: "Couldn't load the ranking", message: error,
                                   action: ("Try again", { Task { await ranking.load(force: true) } }))
             } else if ranking.ranks.isEmpty {
                 ProgressView().tint(.white).frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(alignment: .top, spacing: 14) {
-                        column("Hot", subtitle: "Most played on Steam", tint: Color(red: 1, green: 0.42, blue: 0.25)) {
-                            ForEach(hot) { row($0.rank, $0.appID, detail: $0.peak > 0 ? "\($0.peak.formatted()) playing at peak" : nil) }
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        header
+                        Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1).padding(.top, 10)
+                        chips.padding(.top, 9)
+                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 8) {
+                            ForEach(items) { row($0) }
                         }
-                        column("Soaring", subtitle: "Climbing this week", tint: Color(red: 0.3, green: 0.85, blue: 0.5)) {
-                            ForEach(Array(soaring.enumerated()), id: \.element.id) { i, r in
-                                row(i + 1, r.appID, detail: "▲ \(r.lastWeek - r.rank) places")
-                            }
-                        }
-                        if !mine.isEmpty {
-                            column("Yours", subtitle: "Your most played", tint: GameHub.link) {
-                                ForEach(Array(mine.enumerated()), id: \.element.0) { i, item in
-                                    row(i + 1, item.0, name: item.1, detail: steam.playtime[item.0]?.played)
-                                }
-                            }
-                        }
+                        .padding(.top, 10)
                     }
-                    .padding(.horizontal, 34).padding(.vertical, 12)
+                    .padding(.horizontal, GameHub.margin).padding(.top, 11).padding(.bottom, 30)
                 }
             }
         }
         .task { await ranking.load() }
     }
 
-    private func column<Rows: View>(_ title: String, subtitle: String, tint: Color, @ViewBuilder rows: () -> Rows) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.system(size: 24, weight: .heavy)).foregroundStyle(tint)
-                Text(subtitle).font(.system(size: 12)).foregroundStyle(GameHub.secondary)
+    private var header: some View {
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("GameHub Top Picks").font(.system(size: 22, weight: .bold))
+                Text(filter == 2 ? "Your most played" : "Top Games (Last 7 Days)").font(.system(size: 13)).foregroundStyle(Color.white.opacity(0.45))
             }
-            .padding(16)
-            ScrollView { LazyVStack(spacing: 2) { rows() }.padding(.horizontal, 8).padding(.bottom, 10) }
+            Spacer(minLength: 0)
+            Menu {
+                ForEach(Array(filters.enumerated()), id: \.offset) { i, name in Button(name) { filter = i } }
+            } label: {
+                HStack(spacing: 10) {
+                    Text("Top Picks").font(.system(size: 17))
+                    Image(systemName: "chevron.down").font(.system(size: 12, weight: .semibold))
+                }
+                .padding(.horizontal, 15).frame(height: 31)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white.opacity(0.05)))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.white.opacity(0.2)))
+            }
+            .foregroundStyle(.white)
         }
-        .frame(width: 330)
-        .background(RoundedRectangle(cornerRadius: 20, style: .continuous)
-            .fill(LinearGradient(colors: [tint.opacity(0.18), GameHub.tile], startPoint: .top, endPoint: .init(x: 0.5, y: 0.3))))
-        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(GameHub.tileStroke))
     }
 
-    private func row(_ place: Int, _ appID: Int, name: String? = nil, detail: String?) -> some View {
-        Button { open(appID) } label: {
+    private var chips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
-                Text("\(place)").font(.system(size: 17, weight: .heavy)).monospacedDigit()
-                    .foregroundStyle(place <= 3 ? Color(red: 1, green: 0.78, blue: 0.3) : GameHub.secondary)
-                    .frame(width: 26)
-                AsyncImage(url: URL(string: "https://cdn.cloudflare.steamstatic.com/steam/apps/\(appID)/capsule_184x69.jpg")) { image in
-                    image.resizable().aspectRatio(contentMode: .fill)
-                } placeholder: { Color.white.opacity(0.06) }
-                .frame(width: 92, height: 35).clipShape(RoundedRectangle(cornerRadius: 6))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(name ?? ranking.names[appID] ?? "App \(appID)").font(.system(size: 14, weight: .semibold)).lineLimit(1)
-                    if let detail { Text(detail).font(.system(size: 11)).foregroundStyle(GameHub.secondary).lineLimit(1) }
+                ForEach(Array(filters.enumerated()), id: \.offset) { i, name in
+                    let on = i == filter
+                    Button { withAnimation(.easeInOut(duration: 0.15)) { filter = i } } label: {
+                        Text(name).font(.system(size: 17))
+                            .foregroundStyle(on ? Color(red: 1, green: 0.78, blue: 0.62) : Color.white.opacity(0.65))
+                            .padding(.horizontal, 15).frame(height: 31)
+                            .background(RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                .fill(on ? Color(red: 0.9, green: 0.45, blue: 0.2).opacity(0.22) : Color.white.opacity(0.06)))
+                            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous)
+                                .stroke(on ? Color(red: 0.95, green: 0.55, blue: 0.3) : Color.white.opacity(0.14), lineWidth: on ? 1.3 : 1))
+                    }
+                    .buttonStyle(.plain)
                 }
-                Spacer(minLength: 0)
             }
-            .padding(.horizontal, 8).padding(.vertical, 6)
+        }
+        .scrollClipDisabled()
+    }
+
+    private func row(_ item: Item) -> some View {
+        Button { open(item.id) } label: {
+            HStack(spacing: 10) {
+                medal(item.place).frame(width: 36)
+                HStack(spacing: 12) {
+                    AsyncImage(url: URL(string: "https://cdn.cloudflare.steamstatic.com/steam/apps/\(item.id)/library_600x900.jpg")) { phase in
+                        if let image = phase.image { image.resizable().aspectRatio(contentMode: .fill) }
+                        else if phase.error != nil {
+                            AsyncImage(url: URL(string: "https://cdn.cloudflare.steamstatic.com/steam/apps/\(item.id)/header.jpg")) { image in
+                                image.resizable().aspectRatio(contentMode: .fill)
+                            } placeholder: { Color.white.opacity(0.06) }
+                        } else { Color.white.opacity(0.06) }
+                    }
+                    .frame(width: 56, height: 71).clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(item.name).font(.system(size: 18, weight: .bold)).lineLimit(1)
+                        Text(item.detail).font(.system(size: 14)).foregroundStyle(Color.white.opacity(0.5)).lineLimit(1)
+                    }
+                    Spacer(minLength: 4)
+                    if !item.value.isEmpty {
+                        HStack(spacing: 4) {
+                            Image(systemName: filter == 1 ? "arrow.up.right" : "flame.fill").font(.system(size: 13))
+                            Text(item.value).font(.system(size: 18, weight: .bold)).monospacedDigit()
+                        }
+                        .foregroundStyle(Color(red: 1, green: 0.55, blue: 0.2))
+                    }
+                }
+                .padding(.leading, 8).padding(.trailing, 14).frame(height: 87)
+                .background(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color(red: 1, green: 0.8, blue: 0.6).opacity(item.place <= 3 ? 0.07 : 0.04)))
+            }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(GameHubPressStyle())
+    }
+
+    /// GameHub's TOP medals for the first three, the place number after.
+    @ViewBuilder private func medal(_ place: Int) -> some View {
+        if place <= 3 {
+            let colors: [Color] = [Color(red: 1, green: 0.72, blue: 0.2), Color(red: 0.72, green: 0.78, blue: 0.86), Color(red: 0.88, green: 0.55, blue: 0.3)]
+            VStack(spacing: 2) {
+                Text("TOP").font(.system(size: 11, weight: .heavy))
+                ZStack {
+                    Image(systemName: "shield.fill").font(.system(size: 20)).foregroundStyle(colors[place - 1])
+                    Text("\(place)").font(.system(size: 10, weight: .heavy)).foregroundStyle(.white).offset(y: -1)
+                }
+            }
+        } else {
+            Text("\(place)").font(.system(size: 18, weight: .bold)).foregroundStyle(Color.white.opacity(0.75)).monospacedDigit()
+        }
+    }
+
+    static func compact(_ n: Int) -> String {
+        n >= 1_000_000 ? String(format: "%.1fM", Double(n) / 1_000_000) : n >= 1_000 ? String(format: "%.0fK", Double(n) / 1_000) : "\(n)"
     }
 }
 
@@ -484,7 +562,7 @@ struct GameHubProfilePage: View {
             }
             socialCard
         }
-        .padding(.horizontal, 34).padding(.top, 10)
+        .padding(.horizontal, GameHub.margin).padding(.top, 0)
         .onAppear { steamAccount.refresh() }
     }
 
@@ -501,7 +579,7 @@ struct GameHubProfilePage: View {
                             Image(systemName: "face.smiling.inverse").font(.system(size: 40)).foregroundStyle(.white)
                         }
                     }
-                    .frame(width: 64, height: 64)
+                    .frame(width: 54, height: 54)
                     if let name {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(name).font(.system(size: 22))
@@ -509,7 +587,7 @@ struct GameHubProfilePage: View {
                                 .font(.system(size: 13)).foregroundStyle(GameHub.secondary)
                         }
                     } else {
-                        (Text("Guest Mode").font(.system(size: 22)) + Text("(Tap to log in)").font(.system(size: 15)).foregroundColor(GameHub.secondary))
+                        (Text("Guest Mode").font(.system(size: 20, weight: .semibold)) + Text("(Tap to log in)").font(.system(size: 14)).foregroundColor(GameHub.secondary))
                     }
                     Spacer(minLength: 0)
                 }

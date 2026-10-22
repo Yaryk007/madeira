@@ -150,6 +150,9 @@ struct GameHubHomeView: View {
     @State private var games: [LibraryEntry] = []
     @State private var myGamesIndex = 0
     @State private var myGamesColumns = 4
+    @State private var myGamesTab = 0
+    @State private var steamTab = 0
+    @State private var steamIndex = 0
     @State private var homeSection = 0
     @State private var selected: LibraryEntry?
     @State private var browser = false
@@ -159,6 +162,13 @@ struct GameHubHomeView: View {
     /// The Settings category a button opens (the controller button: Peripherals).
     @State private var settingsCategory: GameHubSettingsPage.Category = .account
     @State private var dialog: GameHubDialog.Content?
+    /// GameHub's Library popups: ≡'s menu (at its button), View Details, Remove Game.
+    @State private var moreAnchor: CGRect?
+    @State private var detailsEntry: LibraryEntry?
+    @State private var removeEntry: LibraryEntry?
+    @State private var removeFiles = true
+    /// The backdrop follows the focused cover a moment after the row settles.
+    @State private var backdropEntry: LibraryEntry?
     @StateObject private var importer = GameImportModel()
     /// First run: "No game files detected", then the Import tile's spotlight.
     @AppStorage("gamehubFirstRunDone") private var firstRunDone = false
@@ -166,13 +176,14 @@ struct GameHubHomeView: View {
 
     private var accent: Color { ConsoleHome.accent(accentIndex) }
     private var modal: Bool {
-        selected != nil || browser || onboarding.presented || settingsModal || dialog != nil || steamSignIn || model.error != nil
+        selected != nil || moreAnchor != nil || detailsEntry != nil || removeEntry != nil || browser || onboarding.presented || settingsModal || dialog != nil || steamSignIn || model.error != nil
             || importer.menu || importer.picker != nil || importer.pendingExe != nil || importer.progress != nil || !importer.choices.isEmpty
     }
     private var jitProblem: JITCoordinator.ConnectionProblem? {
         jit.connectionProblem.flatMap { model.error == $0.message ? $0 : nil }
     }
-    private var myGames: [LibraryEntry] { games.filter { $0.steamAppID == nil } }
+    private var myGames: [LibraryEntry] { games.filter { $0.steamAppID == nil && $0.desktop != true } }
+    private var steamGamesList: [LibraryEntry] { games.filter { $0.steamAppID != nil } }
     private var showFirstRun: Bool { !firstRunDone && !onboarding.presented && !games.contains { $0.desktop != true } }
     private var showImportHint: Bool { firstRunDone && !importHintDone && tab == .library && shelf == nil && page == nil && !modal }
     private var focusedCover: LibraryEntry? { games.indices.contains(coverIndex) ? games[coverIndex] : nil }
@@ -183,11 +194,17 @@ struct GameHubHomeView: View {
                 pageView(page).transition(.opacity)
             } else {
                 backdrop
-                VStack(spacing: 0) {
-                    GameHubTopBar(tab: tab, actions: GameHubAction.forTab(tab), select: { switchTab(to: $0) }, perform: perform)
-                        .padding(.horizontal, 34).padding(.top, 8)
+                // GameHub's top bar is fixed and clear: Library's page scrolls under it.
+                // Margins count from the screen edge, as on GameHub's full-screen pages.
+                ZStack(alignment: .top) {
                     content.frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(.top, tab == .library ? 0 : GameHubTopBar.height)
+                    if !(tab == .library && shelf != nil) {
+                        GameHubTopBar(tab: tab, actions: GameHubAction.forTab(tab), select: { switchTab(to: $0) }, perform: perform)
+                            .padding(.horizontal, GameHub.margin)
+                    }
                 }
+                .ignoresSafeArea(.container, edges: .horizontal)
                 .overlayPreferenceValue(GameHubImportAnchor.self) { anchor in
                     GeometryReader { geo in
                         if showImportHint, let anchor {
@@ -204,17 +221,47 @@ struct GameHubHomeView: View {
                         .transition(.opacity)
                 }
             }
-            GameHubControllerToast().padding(.top, 70).padding(.trailing, 34)
+            GameHubControllerToast().padding(.top, 62).padding(.trailing, GameHub.margin)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                 .allowsHitTesting(false)
             GameImportOverlay(model: importer, browse: { browser = true })
             if let dialog {
                 GameHubDialog(content: dialog) { self.dialog = nil }.transition(.opacity)
             }
+            if let anchor = moreAnchor, games.indices.contains(coverIndex) {
+                let entry = games[coverIndex]
+                GameHubMoreMenu(anchor: anchor, choose: { action in moreAnchor = nil; gameAction(action, entry) },
+                                dismiss: { moreAnchor = nil })
+            }
+            if let entry = detailsEntry {
+                GameHubDetailsCard(entry: entry, launch: { launch([entry], at: 0) },
+                                   choose: { action in detailsEntry = nil; gameAction(action, entry) },
+                                   dismiss: { detailsEntry = nil })
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+            }
+            if let entry = removeEntry {
+                let target = GameFiles.target(entry)
+                let size = target.map { ByteCountFormatter.string(fromByteCount: GameFiles.size($0), countStyle: .file) }
+                GameHubNotice(message: "Remove this game from your library?",
+                              option: size.map { ("Also delete the game's files (\($0))", $removeFiles) },
+                              confirmed: { removeGame(entry, files: target != nil && removeFiles) },
+                              dismiss: { removeEntry = nil })
+                    .transition(.opacity)
+            }
             GameHubSplash()
         }
         .animation(.easeInOut(duration: 0.18), value: page)
         .animation(.easeInOut(duration: 0.15), value: dialog)
+        .animation(.easeOut(duration: 0.16), value: moreAnchor != nil)
+        .animation(.easeOut(duration: 0.18), value: detailsEntry?.id)
+        .animation(.easeOut(duration: 0.15), value: removeEntry?.id)
+        .onChange(of: coverIndex) { _, _ in
+            // GameHub swaps the backdrop once the row has moved, with a crossfade.
+            let target = focusedCover
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                if focusedCover?.id == target?.id { backdropEntry = target }
+            }
+        }
         .foregroundStyle(.white)
         .tint(accent)
         .preferredColorScheme(.dark)
@@ -271,11 +318,15 @@ struct GameHubHomeView: View {
             GameHub.background
             switch tab {
             case .library:
-                if shelf == nil, let entry = focusedCover { GameHubCoverBackdrop(entry: entry) }
+                if shelf == nil, !games.isEmpty { GameHubLibraryBackdrop(entry: backdropEntry ?? focusedCover) }
             case .home:
                 LinearGradient(colors: [Color(red: 0.32, green: 0.07, blue: 0.1).opacity(0.85), Color(white: 0.12)],
                                startPoint: .topLeading, endPoint: .bottomTrailing)
-            case .community, .ranking, .profile:
+            case .ranking:
+                LinearGradient(colors: [Color(red: 51 / 255, green: 38 / 255, blue: 35 / 255), Color(red: 30 / 255, green: 25 / 255, blue: 24 / 255),
+                                        Color(red: 18 / 255, green: 17 / 255, blue: 19 / 255)],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+            case .community, .profile:
                 LinearGradient(colors: [GameHub.background, Color(white: 0.15)], startPoint: .topLeading, endPoint: .bottomTrailing)
             }
         }
@@ -304,12 +355,12 @@ struct GameHubHomeView: View {
     @ViewBuilder private func pageView(_ page: GameHubPage) -> some View {
         switch page {
         case .settings:
-            GameHubFullPage(title: "Settings", glow: Color(red: 0.16, green: 0.2, blue: 0.36), close: { self.page = nil }) {
+            GameHubFullPage(title: "Settings", glow: Color(red: 30 / 255, green: 32 / 255, blue: 43 / 255), glowCenter: .center, close: { self.page = nil }) {
                 GameHubSettingsPage(active: !modal, modal: $settingsModal, initial: settingsCategory,
                                     enableJIT: enableJIT, startDock: startDock, exit: { self.page = nil })
             }
         case .downloads:
-            GameHubFullPage(title: "Download Manager", glow: Color(red: 0.3, green: 0.16, blue: 0.5), close: { self.page = nil }) {
+            GameHubFullPage(title: "Download Manager", glow: Color(red: 0.3, green: 0.16, blue: 0.5).opacity(0.75), close: { self.page = nil }) {
                 GameHubDownloadsPage()
             }
         }
@@ -323,24 +374,39 @@ struct GameHubHomeView: View {
                                    if coverIndex == i { launch(games, at: i) }
                                    else { withAnimation(GameHubLibraryPage.motion) { coverIndex = i; libraryRow = 0 } }
                                },
-                               scrolled: { i in withAnimation(GameHubLibraryPage.motion) { coverIndex = i; libraryRow = 0 } },
-                               details: { details(games, at: coverIndex) },
-                               play: { launch(games, at: coverIndex) },
+                               details: { if games.indices.contains(coverIndex) { detailsEntry = games[coverIndex] } },
+                               more: { moreAnchor = $0 },
                                tile: { i in tileIndex = i; libraryRow = 1; openShelf(GameHubShelf.allCases[i]) })
         case .myGames?:
-            GameHubShelfPage(title: "My Games", back: closeShelf) {
-                ConsoleLibraryGrid(games: myGames, index: myGamesIndex, accent: accent, columns: $myGamesColumns,
-                                   tap: { tapped($0, focus: $myGamesIndex, in: myGames) })
+            GameHubGamesPage(title: "My Games", tabs: ["PC Games", "Retro Games"], tab: $myGamesTab,
+                             search: { CommunityModel.shared.searching.toggle() },
+                             settings: { settingsCategory = .peripherals; page = .settings }, back: closeShelf) {
+                if myGamesTab == 0 && !myGames.isEmpty {
+                    GameHubGameGrid(games: myGames, index: myGamesIndex, columns: $myGamesColumns,
+                                    tap: { tapped($0, focus: $myGamesIndex, in: myGames) })
+                } else {
+                    GameHubEmptyState(title: myGamesTab == 0 ? "No games yet" : "No retro games",
+                                      message: myGamesTab == 0 ? "Games you import show up here." : "Retro games are not supported in this build.",
+                                      action: myGamesTab == 0 ? ("Import", { importer.start() }) : nil)
+                }
             }
         case .steam?:
-            GameHubShelfPage(title: "Steam", back: closeShelf) {
-                GeometryReader { geo in
-                    ScrollView {
-                        SteamGamesSection(search: "", layout: "cards", sort: "played", width: geo.size.width - 68,
-                                          part: .all, open: { selected = $0 })
-                            .padding(.horizontal, 34).padding(.vertical, 12)
+            GameHubGamesPage(title: "Steam", tabs: SteamSignIn.isSignedIn ? ["Installed", "All Games"] : [], tab: $steamTab,
+                             sortTitle: SteamSignIn.isSignedIn ? "Recently Played" : nil, back: closeShelf) {
+                if !SteamSignIn.isSignedIn {
+                    GameHubSteamUnbound(bind: { steamSignIn = true })
+                } else if steamTab == 0 && !steamGamesList.isEmpty {
+                    GameHubGameGrid(games: steamGamesList, index: steamIndex, columns: $myGamesColumns,
+                                    tap: { tapped($0, focus: $steamIndex, in: steamGamesList) })
+                } else {
+                    GeometryReader { geo in
+                        ScrollView {
+                            SteamGamesSection(search: "", layout: "cards", sort: "played", width: geo.size.width - 120,
+                                              part: steamTab == 0 ? .all : .notInstalled, open: { selected = $0 })
+                                .padding(.leading, 62).padding(.trailing, 58).padding(.vertical, 8)
+                        }
+                        .refreshable { await SteamGamesSection.refresh() }
                     }
-                    .refreshable { await SteamGamesSection.refresh() }
                 }
             }
         case .epic?:
@@ -427,14 +493,67 @@ struct GameHubHomeView: View {
         myGamesIndex = min(myGamesIndex, myGames.count)
     }
 
-    /// Plays a game that is not Steam's; a Steam game opens its details page, which
-    /// checks its download and sign-in first. An index past the end adds a game.
+    /// Plays a game. A Steam game first passes the checks its details page makes
+    /// (download finished, Steam client and sign-in, or its program for a direct
+    /// start); what blocks it is shown with a way to its details. An index past
+    /// the end adds a game.
     private func launch(_ list: [LibraryEntry], at index: Int) {
         guard list.indices.contains(index) else { importer.start(); return }
-        let entry = list[index]
-        if entry.steamAppID != nil { selected = entry; return }
+        var entry = list[index]
+        if let appID = entry.steamAppID {
+            if let blocker = Self.steamBlocker(entry, appID: appID) {
+                dialog = .init(icon: "exclamationmark.triangle.fill", title: entry.title, message: blocker,
+                               primary: ("View Details", { selected = entry }))
+                return
+            }
+            // A Steam game played for the first time gets its recommended settings, as its details page gives them.
+            _ = GameRecommendations.prepare(&entry, new: !model.entries.contains { $0.id == entry.id })
+        }
         LogStore.shared.log("[gamehub-home] play \(entry.title)")
         model.save(entry); play(entry)
+    }
+
+    static func steamBlocker(_ entry: LibraryEntry, appID: Int) -> String? {
+        if SteamOwnedLibrary.shared.downloads[appID] != nil {
+            return "This game's update has not finished. Resume it and wait for it to complete before playing."
+        }
+        let installed = SteamGamesModel.shared.games.first { $0.id == appID }?.installed ?? false
+        if entry.startsSteamGameDirectly { return SteamDirectStart.blocker(installed: installed, program: entry.steamProgram) }
+        return SteamGamesRules.blocker(installed: installed, client: MadeiraDock.clientInstalled, signedIn: SteamSignIn.isSignedIn)
+    }
+
+    /// ≡ and View Details' actions. PC Game Settings, Edit Info and Keys & Layout
+    /// open the game's settings page; Add to Desktop copies its Home Screen link.
+    private func gameAction(_ action: GameHubGameAction, _ entry: LibraryEntry) {
+        switch action {
+        case .settings, .editInfo, .keys: selected = entry
+        case .remove:
+            removeFiles = GameFiles.target(entry) != nil
+            removeEntry = entry
+        case .desktop:
+            UIPasteboard.general.string = ShortcutRouter.link(for: entry.windowsPath)
+            dialog = .init(icon: "square.and.arrow.down.on.square", title: "Add to Desktop",
+                           message: "The game's link is copied. In the Shortcuts app: new shortcut, Open URLs, paste the link, then Share › Add to Home Screen.",
+                           primary: nil)
+        }
+    }
+
+    private func removeGame(_ entry: LibraryEntry, files: Bool) {
+        if let appID = entry.steamAppID, entry.steamAppID != nil {
+            model.remove(entry.id)
+            LogStore.shared.log("[gamehub-remove] Steam app \(appID): library entry removed, Steam keeps its files")
+            return
+        }
+        do {
+            let freed = try GameFiles.remove(entry, files: files, model: model)
+            if freed > 0 {
+                dialog = .init(icon: "checkmark.circle.fill", title: "Game removed",
+                               message: "\(ByteCountFormatter.string(fromByteCount: freed, countStyle: .file)) freed.", primary: nil)
+            }
+        } catch {
+            dialog = .init(icon: "exclamationmark.triangle.fill", title: "Couldn't delete the files",
+                           message: error.localizedDescription, primary: nil)
+        }
     }
 
     private func details(_ list: [LibraryEntry], at index: Int) {
@@ -468,6 +587,8 @@ struct GameHubHomeView: View {
             case nil: libraryCommand(command)
             case .myGames?:
                 if command == "back" { closeShelf() } else { move(command, index: $myGamesIndex, in: myGames, columns: myGamesColumns) }
+            case .steam?:
+                if command == "back" { closeShelf() } else if steamTab == 0 { move(command, index: $steamIndex, in: steamGamesList, columns: myGamesColumns) }
             default:
                 if command == "back" { closeShelf() }
             }
@@ -527,6 +648,8 @@ struct GameHubHomeView: View {
 // MARK: - Top bar
 
 struct GameHubTopBar: View {
+    /// GameHub's bar: icons centred 27 pt from the top.
+    static let height: CGFloat = 54
     let tab: GameHubTab
     let actions: [GameHubAction]
     let select: (GameHubTab) -> Void
@@ -535,12 +658,12 @@ struct GameHubTopBar: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            HStack(spacing: 34) {
+            HStack(spacing: 23) {
                 ForEach(GameHubTab.allCases) { t in
                     Button { select(t) } label: {
-                        HStack(spacing: 9) {
-                            GHImage(name: t.asset(selected: t == tab), fallback: t.icon(selected: t == tab)).frame(width: 25, height: 25)
-                            if t == tab { Text(t.title).font(.system(size: 20, weight: .medium)).fixedSize() }
+                        HStack(spacing: 6) {
+                            GHImage(name: t.asset(selected: t == tab), fallback: t.icon(selected: t == tab)).frame(width: 23, height: 23)
+                            if t == tab { Text(t.title).font(.system(size: 20, weight: .bold)).fixedSize() }
                         }
                         .foregroundStyle(t == tab ? Color.white : Color.white.opacity(0.88))
                         .frame(height: 44)
@@ -553,10 +676,10 @@ struct GameHubTopBar: View {
             }
             .animation(ConsoleHomeView.motion, value: tab)
             Spacer(minLength: 16)
-            HStack(spacing: 30) {
+            HStack(spacing: 18) {
                 ForEach(actions, id: \.self) { action in
                     Button { perform(action) } label: {
-                        if GHAsset.has(action.asset) { GHImage(name: action.asset).frame(width: 25, height: 25) }
+                        if GHAsset.has(action.asset) { GHImage(name: action.asset).frame(width: 23, height: 23) }
                         else if action == .layoutSwitch { GameHubLayoutSwitchIcon().frame(width: 22, height: 22) }
                         else if action == .controller, pads.name != nil { Image(systemName: "gamecontroller.fill") }
                         else { Image(systemName: action.icon) }
@@ -566,10 +689,10 @@ struct GameHubTopBar: View {
             }
             .buttonStyle(.plain)
             .font(.system(size: 20, weight: .regular))
-            Rectangle().fill(Color.white.opacity(0.3)).frame(width: 1, height: 16).padding(.horizontal, 14)
+            Rectangle().fill(Color.white.opacity(0.3)).frame(width: 1, height: 14).padding(.horizontal, 11)
             GameHubStatus()
         }
-        .frame(height: 56)
+        .frame(height: Self.height)
     }
 }
 
@@ -604,14 +727,14 @@ struct GameHubStatus: View {
     @StateObject private var network = GameHubNetworkState()
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             TimelineView(.everyMinute) { context in
                 Text(context.date, format: .dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits))
                     .monospacedDigit()
                     .onChange(of: context.date) { _, _ in battery = UIDevice.current.batteryLevel }
             }
             if GHAsset.has("gh-wifi") {
-                GHImage(name: network.wifi ? "gh-wifi" : network.online ? "gh-5g" : "gh-no-network").frame(width: 24, height: 24)
+                GHImage(name: network.wifi ? "gh-wifi" : network.online ? "gh-5g" : "gh-no-network").frame(width: 23, height: 23)
             } else {
                 Image(systemName: network.wifi ? "wifi" : network.online ? "cellularbars" : "wifi.slash")
                     .font(.system(size: 17, weight: .semibold))
@@ -620,7 +743,7 @@ struct GameHubStatus: View {
                 HStack(spacing: 4) {
                     if GHAsset.has("gh-battery-5") {
                         GHImage(name: "gh-battery-\(battery > 0.8 ? 5 : battery > 0.6 ? 4 : battery > 0.4 ? 3 : battery > 0.2 ? 2 : 1)")
-                            .frame(width: 26, height: 26)
+                            .frame(width: 23, height: 23)
                             .colorMultiply(battery <= 0.15 ? .red : .white)
                     } else {
                         Image(systemName: battery > 0.9 ? "battery.100percent" : battery > 0.6 ? "battery.75percent"
@@ -632,7 +755,7 @@ struct GameHubStatus: View {
                 }
             }
         }
-        .font(.system(size: 18, weight: .regular))
+        .font(.system(size: 17, weight: .semibold))
         .fixedSize()
         .onAppear {
             UIDevice.current.isBatteryMonitoringEnabled = true
@@ -663,167 +786,6 @@ final class GameHubNetworkState: ObservableObject {
 }
 
 // MARK: - Library
-
-/// The focused game's art on the right of the page, fading into the dark on the left.
-struct GameHubCoverBackdrop: View {
-    let entry: LibraryEntry
-    var body: some View {
-        GeometryReader { geo in
-            LibraryArtwork(entry: entry, backdrop: true)
-                .frame(width: geo.size.width * 0.62, height: geo.size.height)
-                .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black.opacity(0.85), location: 0.45),
-                                             .init(color: .black, location: 1)], startPoint: .leading, endPoint: .trailing))
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .overlay(LinearGradient(colors: [.clear, GameHub.background.opacity(0.9)], startPoint: .center, endPoint: .bottom))
-                .id(ConsoleHomeView.key(entry))
-                .transition(.opacity)
-        }
-        .animation(.easeInOut(duration: 0.3), value: ConsoleHomeView.key(entry))
-    }
-}
-
-/// Library: the row of covers (games before the focused one slide off to the
-/// left, the focused one is larger and its title sits beside it), View Details
-/// and the menu, then the four tiles. With no games, only the tiles.
-struct GameHubLibraryPage: View {
-    let games: [LibraryEntry]
-    let coverIndex: Int
-    let tileIndex: Int
-    /// 0: the covers have the controller's focus, 1: the tiles.
-    let row: Int
-    let focusCover: (Int) -> Void
-    /// The row settled on another game by touch.
-    let scrolled: (Int) -> Void
-    let details: () -> Void
-    let play: () -> Void
-    let tile: (Int) -> Void
-
-    /// A quick glide that eases out, as the video's row moves.
-    static var motion: Animation? { UIAccessibility.isReduceMotionEnabled ? nil : .spring(response: 0.42, dampingFraction: 0.92) }
-
-    var body: some View {
-        GeometryReader { geo in
-            let big = min(310, max(170, geo.size.height * 0.52))
-            ScrollViewReader { reader in
-                ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 22) {
-                        if !games.isEmpty {
-                            covers(height: big, width: geo.size.width).id("covers")
-                            HStack(spacing: 16) {
-                                Button(action: details) {
-                                    Text("View Details").font(.system(size: 17, weight: .semibold))
-                                        .frame(width: 168, height: 44)
-                                        .background(Capsule().fill(GameHub.button))
-                                        .overlay(Capsule().stroke(row == 0 && GCController.current != nil ? Color.white.opacity(0.8) : .clear, lineWidth: 2))
-                                }
-                                .buttonStyle(.plain)
-                                Menu {
-                                    Button("Play", systemImage: "play.fill", action: play)
-                                    Button("View Details", systemImage: "info.circle", action: details)
-                                } label: {
-                                    Image(systemName: "line.3.horizontal").font(.system(size: 18, weight: .semibold))
-                                        .frame(width: 44, height: 44)
-                                        .background(Circle().fill(GameHub.button))
-                                }
-                                .accessibilityLabel("More")
-                            }
-                        }
-                        GameHubShelves(focus: row == 1 || games.isEmpty ? tileIndex : -1, tap: tile).id("tiles")
-                    }
-                    .padding(.horizontal, 34).padding(.top, 12).padding(.bottom, 24)
-                }
-                .onChange(of: row) { _, value in
-                    withAnimation(Self.motion) { reader.scrollTo(value == 1 ? "tiles" : "covers", anchor: .center) }
-                }
-            }
-        }
-    }
-
-    /// A scrolling row, as GameHub's: drag it freely and it settles on a game;
-    /// the D-pad glides it. The selected game sits at the left with the one
-    /// before peeking in, larger than the rest, its title under the next covers.
-    private func covers(height big: CGFloat, width: CGFloat) -> some View {
-        let small = big * 0.8
-        let peek: CGFloat = 34 + 44
-        let position = Binding<Int?>(get: { coverIndex }, set: { if let i = $0, i != coverIndex { scrolled(i) } })
-        return ZStack(alignment: .topLeading) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(alignment: .top, spacing: 14) {
-                    ForEach(games.indices, id: \.self) { i in
-                        let focused = i == coverIndex
-                        cover(games[i], width: (focused ? big : small) * 0.667, height: focused ? big : small, focused: focused)
-                            .overlay(alignment: .bottom) {
-                                if focused && GCController.current != nil {
-                                    HStack(spacing: 6) {
-                                        ConsoleGlyph(text: "A")
-                                        Text("Launch Game").font(.system(size: 13, weight: .medium))
-                                    }
-                                    .padding(.horizontal, 10).padding(.vertical, 6)
-                                    .frame(maxWidth: .infinity)
-                                    .background(LinearGradient(colors: [.clear, .black.opacity(0.65)], startPoint: .top, endPoint: .bottom))
-                                    .clipShape(UnevenRoundedRectangle(cornerRadii: .init(bottomLeading: 14, bottomTrailing: 14), style: .continuous))
-                                }
-                            }
-                            .onTapGesture { focusCover(i) }
-                            .id(i)
-                    }
-                }
-                .scrollTargetLayout()
-            }
-            .scrollTargetBehavior(.viewAligned)
-            .scrollPosition(id: position, anchor: .leading)
-            .contentMargins(.leading, peek, for: .scrollContent)
-            .contentMargins(.trailing, max(0, width - peek - big * 0.667 - 20), for: .scrollContent)
-            .frame(width: width, height: big + 4, alignment: .topLeading)
-            Text(games[coverIndex].title).font(.system(size: 19, weight: .bold)).lineLimit(1)
-                .frame(maxWidth: max(80, width - peek - big * 0.667 - 48), alignment: .leading)
-                .offset(x: peek + big * 0.667 + 14, y: games.count > coverIndex + 1 ? small + 14 : big - 30)
-                .id("title-" + ConsoleHomeView.key(games[coverIndex]))
-                .transition(.opacity)
-                .allowsHitTesting(false)
-        }
-        .padding(.horizontal, -34)
-        .animation(Self.motion, value: coverIndex)
-    }
-
-    private func cover(_ entry: LibraryEntry, width: CGFloat, height: CGFloat, focused: Bool) -> some View {
-        LibraryArtwork(entry: entry)
-            .frame(width: width, height: height)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(focused && row == 0 && GCController.current != nil ? Color.white : Color.white.opacity(0.06), lineWidth: focused ? 2 : 1))
-            .shadow(color: .black.opacity(focused ? 0.5 : 0.3), radius: focused ? 14 : 6, y: 4)
-            .contentShape(Rectangle())
-            .accessibilityLabel(entry.title)
-            .accessibilityAddTraits(.isButton)
-    }
-}
-
-struct GameHubShelves: View {
-    let focus: Int
-    let tap: (Int) -> Void
-
-    var body: some View {
-        HStack(spacing: 14) {
-            ForEach(GameHubShelf.allCases) { shelf in
-                Button { tap(shelf.rawValue) } label: {
-                    VStack(spacing: 10) {
-                        GameHubShelfIcon(shelf: shelf).frame(width: 34, height: 34)
-                        Text(shelf.title).font(.system(size: 17, weight: .regular))
-                    }
-                    .frame(maxWidth: .infinity).frame(height: 100)
-                    .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(GameHub.tile))
-                    .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .stroke(focus == shelf.rawValue && GCController.current != nil ? Color.white.opacity(0.85) : GameHub.tileStroke,
-                                lineWidth: focus == shelf.rawValue && GCController.current != nil ? 2 : 1))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(shelf.title)
-                .anchorPreference(key: GameHubImportAnchor.self, value: .bounds) { shelf == .importGame ? $0 : nil }
-            }
-        }
-    }
-}
 
 struct GameHubImportAnchor: PreferenceKey {
     static var defaultValue: Anchor<CGRect>?
@@ -988,7 +950,7 @@ struct GameHubShelfPage<Content: View>: View {
                 }
             }
             .buttonStyle(.plain)
-            .padding(.horizontal, 34).padding(.top, 6)
+            .padding(.horizontal, GameHub.margin).padding(.top, 6)
             content().frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }

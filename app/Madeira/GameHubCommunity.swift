@@ -134,7 +134,7 @@ struct GameHubCommunityPage: View {
             }
             posts.padding(.top, 18)
         }
-        .padding(.horizontal, 34)
+        .padding(.horizontal, GameHub.margin)
         .animation(.easeInOut(duration: 0.22), value: collapsed)
         .task { if model.state != .loaded { await model.reload() } }
         .fullScreenCover(item: $opened) { CommunityPostPage(post: $0) }

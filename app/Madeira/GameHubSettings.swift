@@ -97,20 +97,30 @@ struct GameHubSettingsPage: View {
     @State private var refresh = 0
 
     var body: some View {
+        // GameHub's Settings (measured): a 243 pt category column 54 pt from the
+        // edge, the panel 24 pt to its right, both scrolling on their own and
+        // clipped under the title. Each list's height is the visible height, so
+        // its last rows are always reachable.
         GeometryReader { geo in
-            HStack(alignment: .top, spacing: 22) {
-                categoryColumn.frame(width: min(300, geo.size.width * 0.3))
+            HStack(alignment: .top, spacing: 24) {
+                categoryColumn.frame(width: 243, height: geo.size.height)
                 ScrollViewReader { reader in
-                    ScrollView(showsIndicators: false) {
-                        panel.padding(.bottom, 30).id(category)
+                    ScrollView(.vertical, showsIndicators: false) {
+                        panel.padding(.bottom, 40).id(category)
                     }
+                    .scrollBounceBehavior(.always, axes: .vertical)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: geo.size.height)
+                    .clipped()
                     .onChange(of: row) { _, value in
                         if let value { withAnimation(ConsoleHomeView.motion) { reader.scrollTo("row-\(value)", anchor: .center) } }
                     }
                 }
             }
-            .padding(.horizontal, 44)
+            .padding(.leading, 54).padding(.trailing, 54)
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
         }
+        .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
         .onAppear {
             category = initial
             memoryPlus = EntitlementStatus.check().increasedMemory
@@ -137,20 +147,22 @@ struct GameHubSettingsPage: View {
     // MARK: Categories
 
     private var categoryColumn: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 18) {
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 16) {
                 categoryCard(Category.allCases.filter { !$0.secondGroup })
                 categoryCard(Category.allCases.filter(\.secondGroup))
                 if steamAccount.accountName != nil {
                     Button { signOut = true } label: {
-                        Text("Logout").font(.system(size: 17)).frame(maxWidth: .infinity).frame(height: 58)
-                            .background(GameHubCard())
+                        Text("Logout").font(.system(size: 17)).frame(maxWidth: .infinity).frame(height: 54)
+                            .background(GameHubCard(cornerRadius: 16))
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.bottom, 24)
+            .padding(.bottom, 40)
         }
+        .scrollBounceBehavior(.always, axes: .vertical)
+        .clipped()
     }
 
     private func categoryCard(_ list: [Category]) -> some View {
@@ -158,15 +170,16 @@ struct GameHubSettingsPage: View {
             ForEach(Array(list.enumerated()), id: \.element) { i, c in
                 let selected = c == category
                 Button { select(c) } label: {
-                    HStack(spacing: 14) {
-                        Capsule().fill(selected ? Color.white : .clear).frame(width: 3, height: 15)
-                        Image(systemName: c.icon).font(.system(size: 18)).frame(width: 26)
+                    // GameHub's selected row: a bar, and its icon and name step right.
+                    HStack(spacing: 10) {
+                        if selected { Capsule().fill(Color.white).frame(width: 3, height: 14) }
+                        Image(systemName: c.icon).font(.system(size: 17)).frame(width: 23)
                         Text(c.title).font(.system(size: 17)).multilineTextAlignment(.leading)
                         Spacer(minLength: 0)
-                        Image(systemName: "chevron.right").font(.system(size: 13, weight: .medium)).foregroundStyle(.white.opacity(0.5))
+                        Image(systemName: "chevron.right").font(.system(size: 12, weight: .medium)).foregroundStyle(.white.opacity(0.5))
                     }
-                    .padding(.leading, 6).padding(.trailing, 18).frame(minHeight: 62)
-                    .foregroundStyle(selected ? Color.white : Color.white.opacity(0.58))
+                    .padding(.leading, selected ? 15 : 17).padding(.trailing, 22).frame(minHeight: 54)
+                    .foregroundStyle(selected ? Color.white : Color.white.opacity(0.55))
                     .background(selected && row == nil && GCController.current != nil ? Color.white.opacity(0.07) : .clear)
                     .contentShape(Rectangle())
                 }
@@ -176,8 +189,8 @@ struct GameHubSettingsPage: View {
                 }
             }
         }
-        .background(GameHubCard())
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .background(GameHubCard(cornerRadius: 16))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private func select(_ c: Category) {
@@ -208,26 +221,39 @@ struct GameHubSettingsPage: View {
     }
 
     private var devices: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("My Devices").font(.system(size: 18))
+        VStack(alignment: .leading, spacing: 10) {
+            Text("My Devices").font(.system(size: 18, weight: .bold)).padding(.top, 8)
             VStack(spacing: 12) {
                 ZStack {
-                    Circle().fill(Color.white.opacity(0.08)).frame(width: 64, height: 64)
-                    Image(systemName: pads.name == nil ? "gamecontroller.fill" : "gamecontroller.fill").font(.system(size: 24))
-                        .foregroundStyle(pads.name == nil ? Color.white : Color(red: 0.45, green: 0.65, blue: 1))
+                    Circle().fill(Color.white.opacity(0.1)).frame(width: 39, height: 39)
+                    if let name = pads.name {
+                        Image(systemName: Self.padSymbol(name)).font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(Color(red: 0.45, green: 0.65, blue: 1))
+                    } else {
+                        GHImage(name: "gh-gamepad", fallback: "gamecontroller.fill").frame(width: 21, height: 21)
+                    }
                 }
-                Text(pads.name ?? "Add device").font(.system(size: 17))
-                if pads.name == nil {
-                    Text("Pair a controller in iOS Settings › Bluetooth; it shows here once connected.")
-                        .font(.system(size: 13)).foregroundStyle(GameHub.secondary).multilineTextAlignment(.center)
-                } else {
+                Text(pads.name ?? "Add device").font(.system(size: 15)).foregroundStyle(Color.white.opacity(pads.name == nil ? 0.75 : 0.95))
+                if pads.name != nil {
                     Text("Connected").font(.system(size: 13)).foregroundStyle(GameHub.secondary)
                 }
             }
-            .frame(maxWidth: .infinity).padding(.vertical, 30)
-            .background(GameHubCard(cornerRadius: 22))
+            .frame(maxWidth: .infinity).frame(height: 159)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(LinearGradient(colors: [Color.white.opacity(0.08), Color.white.opacity(0.03)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.white.opacity(0.09)))
+            )
+            .contentShape(Rectangle())
             .onTapGesture { if pads.name == nil, let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }
         }
+    }
+
+    static func padSymbol(_ name: String) -> String {
+        let lower = name.lowercased()
+        if lower.contains("dualsense") || lower.contains("dualshock") || lower.contains("playstation") { return "playstation.logo" }
+        if lower.contains("xbox") { return "xbox.logo" }
+        return "gamecontroller.fill"
     }
 
     private var storageCard: some View {
@@ -545,19 +571,19 @@ struct GameHubRowGroups: View {
         VStack(alignment: .leading, spacing: 14) {
             ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
                 if let header = group.header {
-                    Text(header).font(.system(size: 15)).foregroundStyle(.white.opacity(0.75)).padding(.top, 6).padding(.leading, 4)
+                    Text(header).font(.system(size: 15)).foregroundStyle(.white.opacity(0.6)).padding(.top, 6).padding(.leading, 7)
                 }
                 if !group.rows.isEmpty {
                     VStack(spacing: 0) {
                         ForEach(Array(group.rows.enumerated()), id: \.offset) { n, entry in
                             GameHubRowView(row: entry.row, focused: focused == entry.index).id("row-\(entry.index)")
                             if n < group.rows.count - 1 {
-                                Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1).padding(.horizontal, 22)
+                                Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1).padding(.leading, 15).padding(.trailing, 22)
                             }
                         }
                     }
-                    .background(GameHubCard(cornerRadius: 20))
-                    .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .background(GameHubCard(cornerRadius: 16))
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
             }
         }
@@ -606,15 +632,15 @@ struct GameHubRowView: View {
 
     private func line<Trailing: View>(_ title: String, _ detail: String?, @ViewBuilder trailing: () -> Trailing) -> some View {
         HStack(spacing: 16) {
-            VStack(alignment: .leading, spacing: 5) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.system(size: 17))
-                if let detail { Text(detail).font(.system(size: 12.5)).foregroundStyle(GameHub.secondary).fixedSize(horizontal: false, vertical: true) }
+                if let detail { Text(detail).font(.system(size: 13)).foregroundStyle(GameHub.secondary).fixedSize(horizontal: false, vertical: true) }
             }
             Spacer(minLength: 10)
             trailing()
         }
-        .padding(.horizontal, 22).padding(.vertical, detail == nil ? 18 : 15)
-        .frame(minHeight: 62)
+        .padding(.leading, 15).padding(.trailing, 22).padding(.vertical, detail == nil ? 14 : 13)
+        .frame(minHeight: detail == nil ? 54 : 70)
         .contentShape(Rectangle())
     }
 }
@@ -624,12 +650,12 @@ struct GameHubToggle: View {
     let on: Bool
     var body: some View {
         ZStack(alignment: on ? .trailing : .leading) {
-            Capsule().fill(on ? AnyShapeStyle(LinearGradient(colors: [Color(red: 0.1, green: 0.5, blue: 0.85), Color(red: 0.06, green: 0.4, blue: 0.75)],
+            Capsule().fill(on ? AnyShapeStyle(LinearGradient(colors: [Color(red: 0.13, green: 0.53, blue: 0.86), Color(red: 0.09, green: 0.45, blue: 0.78)],
                                                               startPoint: .top, endPoint: .bottom))
                               : AnyShapeStyle(Color.white.opacity(0.14)))
-            Circle().fill(on ? Color(white: 0.92) : Color(white: 0.6)).frame(width: 22, height: 22).padding(4)
+            Circle().fill(on ? Color.white : Color(white: 0.62)).frame(width: 16, height: 16).padding(2)
         }
-        .frame(width: 54, height: 30)
+        .frame(width: 39, height: 20)
         .animation(.spring(response: 0.25, dampingFraction: 0.8), value: on)
         .accessibilityRepresentation { Toggle("", isOn: .constant(on)) }
     }
