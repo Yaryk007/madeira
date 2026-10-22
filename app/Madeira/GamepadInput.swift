@@ -71,7 +71,15 @@ final class GamepadInput: @unchecked Sendable {
         if let v = MadeiraConfig.gameValue(padModeKey) { return (v.lowercased(), "game") }
         if let v = MadeiraConfig.get(padModeKey), !v.isEmpty { return (v.lowercased(), "cfg") }
         if let v = ProcessInfo.processInfo.environment["MADEIRA_PAD_MODE"], !v.isEmpty { return (v.lowercased(), "env") }
-        return ("xinput", "default")
+        // GamehubiOS: Settings › Peripherals › Controller type, so a game shows
+        // the buttons of the controller in hand.
+        switch GameHubPrefs.controllerType {
+        case "playstation": return ("dualsense", "setting")
+        case "xbox": return ("xinput", "setting")
+        default:
+            let first = GCController.controllers().first { $0.extendedGamepad != nil }?.extendedGamepad
+            return first is GCDualSenseGamepad || first is GCDualShockGamepad ? ("dualsense", "auto") : ("xinput", "auto")
+        }
     }
 
     /// ml2106: what of a game's controller output reaches the physical pad
@@ -353,7 +361,8 @@ final class GamepadInput: @unchecked Sendable {
                 // sees a connected pad at rest.
                 if i == 0 {
                     let library = LibraryController.shared
-                    library.sample(buttons: state.buttons, lx: state.lx, ly: state.ly)
+                    let touchpad = (pad as? GCDualSenseGamepad)?.touchpadButton ?? (pad as? GCDualShockGamepad)?.touchpadButton
+                    library.sample(buttons: state.buttons, lx: state.lx, ly: state.ly, touchpad: touchpad?.isPressed == true)
                     if library.ownsInput {
                         state = winios_gamepad()
                         state.connected = 1
@@ -414,7 +423,8 @@ final class GamepadInput: @unchecked Sendable {
         if state.right_trigger > 25 { hid.buttons |= WINIOS_HIDPAD_R2 }
         if let live {
             let touchpad = (live as? GCDualSenseGamepad)?.touchpadButton ?? (live as? GCDualShockGamepad)?.touchpadButton
-            if touchpad?.isPressed == true { hid.buttons |= WINIOS_HIDPAD_TOUCHPAD }
+            // GamehubiOS: the click opens the menu instead (LibraryController), unless turned off.
+            if touchpad?.isPressed == true && !GameHubPrefs.touchpadMenu { hid.buttons |= WINIOS_HIDPAD_TOUCHPAD }
         }
         if hidBatteryCountdown <= 0 {
             hidBatteryCountdown = 250

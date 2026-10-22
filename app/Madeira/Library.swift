@@ -98,6 +98,7 @@ final class LibraryController: ObservableObject, @unchecked Sendable {
     private var enabled = false
     private var owns = false
     private var last: UInt16 = 0
+    private var lastTouchpad = false
     private var announced = false
     /// Hold-to-repeat of a direction while the library owns input (the console
     /// home's carousel and settings list), as a console's menus do.
@@ -110,7 +111,7 @@ final class LibraryController: ObservableObject, @unchecked Sendable {
         lock.lock(); self.enabled = enabled && allowed; owns = ownsInput; lock.unlock()
     }
     /// One sample of player 1's pad, in XInput button bits and stick units.
-    func sample(buttons raw: UInt16, lx: Int16, ly: Int16) {
+    func sample(buttons raw: UInt16, lx: Int16, ly: Int16, touchpad: Bool = false) {
         lock.lock()
         guard enabled else { lock.unlock(); return }
         var buttons = raw
@@ -124,6 +125,7 @@ final class LibraryController: ObservableObject, @unchecked Sendable {
             if directions != heldDirections { heldDirections = directions; heldSince = now; lastRepeat = now }
             else if directions != 0, pressed == 0, now - heldSince > 0.45, now - lastRepeat > 0.11 { lastRepeat = now; pressed = directions }
         }
+        let touchpadClick = touchpad && !lastTouchpad; lastTouchpad = touchpad
         let own = owns, announce = !announced; announced = true
         lock.unlock()
         if announce { DispatchQueue.main.async { self.connected = true; fputs("[frontend-controller] navigation active\n", stderr) } }
@@ -135,6 +137,8 @@ final class LibraryController: ObservableObject, @unchecked Sendable {
                 if pressed & mask != 0 { command = name; break }
             }
         }
+        // GamehubiOS: a PS4/PS5 touchpad click opens or closes the in-game menu.
+        if touchpadClick && GameHubPrefs.touchpadMenu { command = "menu" }
         if let command { DispatchQueue.main.async { self.commands.send(command) } }
     }
 }
@@ -4001,15 +4005,6 @@ struct LibraryHUD: View {
     @ObservedObject private var controls = TouchControlsModel.shared
     /// A Madeira Dock start: its status, failure and Show desktop (DockStartScreen).
     @ObservedObject private var dockStart = DockStartScreen.shared
-    private let sessionTools = MadeiraConfig.flag("MADEIRA_SESSION_TOOLS")
-    /// The in-game menu's Diagnostics (frame capture, GPU sync), for testing: off
-    /// unless madeira.cfg sets env.MADEIRA_SESSION_DIAGNOSTICS = 1. A capture
-    /// writes render-target pixels to Documents/capture, which Files shows.
-    private let sessionDiagnostics = MadeiraConfig.flag("MADEIRA_SESSION_DIAGNOSTICS", fallback: false)
-    /// The developer overlay's ECO and F pills, which a library session does not
-    /// show; read again each time the menu opens.
-    @State private var eco = madeira_get_eco() != 0
-    @State private var fenceMode = FPSOverlayFenceMode.current
     @State private var launchVisible = false
     /// The Session menu's Controller binds page (keyboard-and-mouse mode).
     @State private var bindsPage = false
@@ -4040,15 +4035,18 @@ struct LibraryHUD: View {
                 if !model.sessionMessage.isEmpty { Text(model.sessionMessage).font(.caption).padding(10).background(.regularMaterial, in: Capsule()).frame(maxWidth: .infinity).padding(.top, Self.topInset(geo) + 12).allowsHitTesting(false) }
                 if !model.launching { LibraryFloatingItem(isMenu: true, viewport: geo.size, insets: geo.safeAreaInsets) }
                 if model.menu {
-                    Color.black.opacity(0.5).ignoresSafeArea().onTapGesture { model.menu = false }.transition(.opacity)
-                    (bindsPage ? AnyView(bindsMenu) : AnyView(menu))
-                        .frame(width: min(460, geo.size.width - 32), height: min(650, geo.size.height - geo.safeAreaInsets.top - geo.safeAreaInsets.bottom - 24))
-                        .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 28))
-                        .clipShape(RoundedRectangle(cornerRadius: 28))
-                        .overlay(RoundedRectangle(cornerRadius: 28).stroke(.white.opacity(0.15)))
-                        .shadow(color: .black.opacity(0.6), radius: 30, y: 12)
-                        .position(x: geo.size.width / 2, y: geo.size.height / 2)
-                        .transition(reduceMotion ? .opacity : .scale(scale: 0.94).combined(with: .opacity))
+                    // GamehubiOS: GameHub's drawer from the left edge (GameHubGameMenu).
+                    let landscape = geo.size.width > geo.size.height
+                    let width = min(geo.size.width, landscape ? min(470, max(390, geo.size.width * 0.44)) : geo.size.width - 36)
+                    Color.black.opacity(0.45).ignoresSafeArea().onTapGesture { model.menu = false }.transition(.opacity)
+                    Group {
+                        if bindsPage { bindsMenu.background(GameHub.background.ignoresSafeArea()) }
+                        else { GameHubGameMenu(openBinds: { bindsPage = true }) }
+                    }
+                    .padding(.leading, geo.safeAreaInsets.leading).padding(.top, geo.safeAreaInsets.top).padding(.bottom, geo.safeAreaInsets.bottom)
+                    .frame(width: width + geo.safeAreaInsets.leading, height: geo.size.height)
+                    .shadow(color: .black.opacity(0.5), radius: 24, x: 8)
+                    .transition(reduceMotion ? .opacity : .move(edge: .leading))
                 }
             }
             .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.85), value: model.menu)
@@ -4062,11 +4060,10 @@ struct LibraryHUD: View {
             LibraryController.shared.configure(enabled: model.enabled, ownsInput: open)
             if !open { bindsPage = false }
             if !open { model.saveCurrentProfile() }
-            if open { eco = madeira_get_eco() != 0; fenceMode = FPSOverlayFenceMode.current }
         }
         .onReceive(LibraryController.shared.commands) { command in
             if command == "menu" { if model.menu { model.menu = false } else { model.showMenu() } }
-            else if command == "back", model.menu { model.menu = false }
+            else if command == "back", model.menu { if bindsPage { bindsPage = false } else { model.menu = false } }
         }
     }
     /// GamehubiOS: the starting screen as GameHub draws it. Windows ⇄ the game's
@@ -4208,105 +4205,6 @@ struct LibraryHUD: View {
                                     controls: controls.controls)
             }.scrollContentBackground(.hidden)
         }
-    }
-
-    private var menu: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                HStack { Label("Session", systemImage: "gamecontroller.fill").font(.title2.bold()); Spacer(); Button("Done") { model.menu = false }.buttonStyle(.bordered) }
-                // The controls come first, the easiest to reach; the overlay settings last.
-                Toggle("Touch controls", isOn: $controls.visible)
-                // The named layouts (Xbox controller, custom ones) live here in a session: this
-                // menu replaces the overlay's top bar, where the same menu sits outside the library.
-                if controls.visible && ControlPresetsModel.enabled {
-                    ControlLayoutMenu(style: .row) { openedEditor in
-                        model.saveCurrentProfile()
-                        if openedEditor { model.menu = false }
-                    }
-                }
-                LabeledContent("Opacity") { Slider(value: $model.opacity, in: 0.15...1) }
-                LabeledContent("Size") { Slider(value: $controls.sizeScale, in: 0.5...2) }
-                Button("Edit controls", systemImage: "slider.horizontal.3") { controls.visible = true; controls.editing = true; model.menu = false }
-                if GamepadInput.keyboardMouseAvailable {
-                    ControllerModeChoice(mode: Binding(get: { model.controllerMode ?? (InputSettings.shared.padKeyboardMouseDefault ? "xinput" : nil) },
-                                                       set: { model.controllerMode = LibraryModel.effectiveControllerMode($0); model.saveCurrentProfile() }))
-                    if model.controllerMode == "keys" {
-                        Button("Controller binds", systemImage: "gamecontroller") { bindsPage = true }
-                    } else if model.controllerMode == "dinput" {
-                        // ml1240: the DirectInput device exists only from the launch on.
-                        Text("XInput and DirectInput applies to the next launch.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                Button("Keyboard", systemImage: "keyboard") { model.menu = false; LibraryKeyboard.show() }
-                Divider()
-                FPSChoice(mode: Binding(get: { model.fpsMode }, set: { model.setFPS($0) }))
-                // Saved to the game with the rest of the session's profile.
-                // MADEIRA_SESSION_TOOLS=0 hides it.
-                if sessionTools {
-                    LabeledContent("Aspect & scaling") {
-                        Picker("Aspect & scaling", selection: $model.displayMode) {
-                            ForEach(DisplayMode.allCases, id: \.self) { mode in Label(mode.label, systemImage: mode.symbol).tag(mode) }
-                        }.pickerStyle(.menu).labelsHidden()
-                    }
-                }
-                Divider()
-                // ml1133's ECO switch, live: the same as the developer overlay's ECO pill.
-                Text("CPU").font(.headline)
-                Toggle("Eco mode", isOn: Binding(get: { eco }, set: { on in eco = on; madeira_set_eco(on ? 1 : 0) }))
-                Text("Runs the game's threads at a low priority, on the efficiency cores: cooler and slower. Use it while a game loads and turn it off to play.")
-                    .font(.caption).foregroundStyle(.secondary)
-                Divider()
-                Text("Mouse & pointer").font(.headline)
-                LibraryPointerSettings()
-                Divider()
-                Toggle("Performance overlay", isOn: $model.performance)
-                if model.performance {
-                    ForEach(["FPS", "Frame time", "CPU", "GPU", "RAM", "Battery", "Thermal"], id: \.self) { field in
-                        Toggle(field, isOn: Binding(get: { model.overlayFields.contains(field) }, set: { on in
-                            model.overlayFields.removeAll { $0 == field }; if on { model.overlayFields.append(field) }
-                        })).font(.subheadline)
-                    }
-                }
-                // The developer overlay's CAP and F pills (FPSOverlay), for library
-                // sessions: only with MADEIRA_SESSION_DIAGNOSTICS=1 (and not with
-                // MADEIRA_SESSION_TOOLS=0).
-                if sessionTools && sessionDiagnostics {
-                    Divider()
-                    Text("Diagnostics").font(.headline)
-                    Button("Capture the next frame", systemImage: "camera.viewfinder") {
-                        model.menu = false
-                        // After the menu has gone, so the frame shows what the player saw.
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                            madeira_capture_request(1)
-                            LogStore.shared.log("[capture] frame capture requested from the in-game menu")
-                        }
-                    }
-                    LabeledContent("GPU sync") {
-                        Picker("GPU sync", selection: Binding(get: { fenceMode }, set: { mode in
-                            fenceMode = mode; FPSOverlayFenceMode.current = mode
-                            madeira_set_fence_mode(Int32(mode == 0 ? 7 : mode))
-                        })) {
-                            Text("F1").tag(1); Text("F6").tag(6); Text("F5").tag(5); Text("F0").tag(0)
-                        }.pickerStyle(.segmented).frame(maxWidth: 220)
-                    }
-                    Text("Both apply to Direct3D 12 games only. Capture writes the render passes of the next frame to Documents/capture and its draw list to the log. GPU sync: F1 makes every pass wait for the one before (the default), F6 waits only where the game's barriers ask, F5 makes render passes wait at the fragment stage, F0 has no sync at all (expect flicker; for tests).")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                if let appID = model.activeEntry?.steamAppID, SteamOwnedLibrary.cloudQuitEnabled {
-                    Divider()
-                    SteamCloudQuitRow(appID: appID)
-                }
-                Divider()
-                // Red label and symbol; the menu's .primary style would otherwise win.
-                Button(role: .destructive) { model.requestQuit() } label: {
-                    Label("Quit game", systemImage: "stop.circle").foregroundStyle(.red)
-                }.tint(.red)
-                Text("Closes the running session. Unsaved progress will be lost.").font(.caption).foregroundStyle(.secondary)
-            }.frame(maxWidth: .infinity, alignment: .leading).padding(22)
-                .foregroundStyle(.primary)
-        }
-        .scrollIndicators(.visible)
     }
 }
 

@@ -140,9 +140,16 @@ struct GameHubPadBadge: View {
     let title: String
     let name: String
     var connected = true
+    /// The PlayStation or Xbox mark for those controllers, by the name iOS gives them.
+    private var symbol: String {
+        let lower = name.lowercased()
+        if lower.contains("dualsense") || lower.contains("dualshock") || lower.contains("playstation") { return "playstation.logo" }
+        if lower.contains("xbox") { return "xbox.logo" }
+        return "gamecontroller"
+    }
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: connected ? "gamecontroller" : "gamecontroller.slash").font(.system(size: 15, weight: .semibold))
+            Image(systemName: connected ? symbol : "gamecontroller.slash").font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(connected ? Color(red: 0.4, green: 0.6, blue: 1) : Color.white.opacity(0.5))
                 .frame(width: 34, height: 34).background(Circle().fill(Color.white.opacity(0.06)))
             VStack(alignment: .leading, spacing: 1) {

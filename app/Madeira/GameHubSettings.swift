@@ -12,6 +12,16 @@ enum GameHubPrefs {
     static var buttonHaptics: Bool { flag(keySoundKey) && flag(buttonHapticsKey) }
     /// Key Sound › Game Launch: a haptic when a game's first frame shows.
     static var launchHaptic: Bool { flag(keySoundKey) && flag(launchHapticKey) }
+    /// Peripherals › Touchpad opens the menu: a PS4/PS5 controller's touchpad
+    /// click opens and closes the in-game menu instead of reaching the game.
+    static let touchpadMenuKey = "gamehubTouchpadMenu"
+    static var touchpadMenu: Bool { flag(touchpadMenuKey) }
+    /// Peripherals › Controller type, read at each game's start
+    /// (GamepadInput.configuredPadMode): "auto" shows a PlayStation controller to
+    /// games as a DualSense and any other as an Xbox (XInput) controller.
+    static let controllerTypeKey = "gamehubControllerType"
+    static var controllerType: String { UserDefaults.standard.string(forKey: controllerTypeKey) ?? "auto" }
+    static let controllerTypes = [("auto", "Auto"), ("xbox", "Xbox"), ("playstation", "PlayStation")]
     private static func flag(_ key: String) -> Bool { UserDefaults.standard.object(forKey: key) as? Bool ?? true }
 }
 
@@ -72,6 +82,8 @@ struct GameHubSettingsPage: View {
     @AppStorage(GameHubPrefs.keySoundKey) private var keySound = true
     @AppStorage(GameHubPrefs.buttonHapticsKey) private var buttonHaptics = true
     @AppStorage(GameHubPrefs.launchHapticKey) private var launchHaptic = true
+    @AppStorage(GameHubPrefs.touchpadMenuKey) private var touchpadMenu = true
+    @AppStorage(GameHubPrefs.controllerTypeKey) private var controllerType = "auto"
     @State private var category: Category = .account
     /// Controller focus: the categories (nil) or a row of the panel.
     @State private var row: Int?
@@ -273,6 +285,13 @@ struct GameHubSettingsPage: View {
                                     detail: "For games without controller support. A game can choose its own in its details.",
                                     $input.padKeyboardMouseDefault))
             }
+            for (value, title) in GameHubPrefs.controllerTypes {
+                let detail = value == "auto" ? "Games see a PlayStation controller as a DualSense and any other as an Xbox controller."
+                    : value == "xbox" ? "Every controller as an Xbox controller (XInput), which nearly every game supports."
+                    : "Every controller as a DualSense, for PlayStation button prompts. Games without DualSense support see no controller."
+                list.append(.check("type-\(value)", "Controller type: \(title)", detail: detail, controllerType == value, { controllerType = value }))
+            }
+            list.append(.toggle("touchpad", "Touchpad opens the game menu", detail: "PS4 and PS5 controllers. Off: the touchpad click reaches the game.", $touchpadMenu))
             list.append(.toggle("rsmouse", "Right stick moves the pointer",
                                 detail: "In games that read the controller, the right stick also moves the mouse pointer.", $input.padRightStickMouse))
             list.append(.header("Touch & Mouse"))
