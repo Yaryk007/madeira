@@ -188,6 +188,11 @@ struct LibraryEntry: Codable, Identifiable {
     /// Steam). Only its public artwork is used: the library cover and the
     /// starting screen's background, when no cover file is chosen.
     var steamID: Int?
+    /// GamehubiOS (GameArtwork.swift): the automatic artwork lookup's revision
+    /// once it ran (a Steam store match by title, else the program's icon), and
+    /// the largest icon read from the .exe, a PNG in Documents/madeira-art/.
+    var artworkChecked: Int?
+    var iconFile: String?
     var arguments = ""
     /// The virtual monitor's size ("WxH"): the session default a game renders
     /// for (GuestDisplay.configureSessionDefault), and the Desktop entry's
@@ -1649,14 +1654,23 @@ struct LibraryArtwork: View {
                 Image(uiImage: image).resizable().scaledToFill()
                     .frame(width: geometry.size.width, height: geometry.size.height, alignment: .center).clipped()
             } else if let id = entry.steamID ?? entry.steamAppID {   // a store match, else the Steam game itself
-                AsyncImage(url: backdrop ? SteamCatalog.hero(id) : SteamCatalog.cover(id)) { image in
-                    image.resizable().scaledToFill()
-                        .frame(width: geometry.size.width, height: geometry.size.height, alignment: .center).clipped()
-                } placeholder: { Color.clear }
+                AsyncImage(url: backdrop ? SteamCatalog.hero(id) : SteamCatalog.cover(id)) { phase in
+                    if let image = phase.image {
+                        image.resizable().scaledToFill()
+                            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .center).clipped()
+                    } else if phase.error != nil, let icon = GameArtwork.icon(entry) {
+                        GameIconArtwork(image: icon, backdrop: backdrop)   // GamehubiOS: Steam has no such art
+                    } else { Color.clear }
+                }
+            } else if let icon = GameArtwork.icon(entry) {   // GamehubiOS: the program's own icon
+                GameIconArtwork(image: icon, backdrop: backdrop)
             }
         }
         .frame(width: geometry.size.width, height: geometry.size.height)
         .clipped().accessibilityHidden(true)
+        }
+        .task(id: entry.id, priority: .utility) {
+            if GameArtwork.needsLookup(entry) { await GameArtwork.resolve(entry.id) }
         }
     }
 }
@@ -4004,7 +4018,8 @@ struct LibraryHUD: View {
         GeometryReader { geo in
             ZStack(alignment: .topLeading) {
                 if model.launching, let entry = model.activeEntry {
-                    launchBackdrop(entry).overlay(.black.opacity(0.65)).ignoresSafeArea()
+                    // GamehubiOS: GameHub's dark-blue starting screen (GameHubLaunchBackground).
+                    GameHubLaunchBackground().ignoresSafeArea()
                         .opacity(launchVisible ? 1 : 0)
                     launchView(entry, geometry: geo)
                         .opacity(launchVisible ? 1 : 0)
@@ -4044,51 +4059,66 @@ struct LibraryHUD: View {
             else if command == "back", model.menu { model.menu = false }
         }
     }
+    /// GamehubiOS: the starting screen as GameHub draws it. Windows ⇄ the game's
+    /// icon, "Launching game…" over a sliding bar, the controller in the top
+    /// corner. Madeira's own parts stay: the Dock start's status and failure, the
+    /// seconds, the live log, Close session, Show desktop, Show game view.
     private func launchView(_ entry: LibraryEntry, geometry geo: GeometryProxy) -> some View {
         let compact = geo.size.height < 500
         let available = max(0, geo.size.height - geo.safeAreaInsets.top - geo.safeAreaInsets.bottom)
-        // A landscape phone would have the live log below the fold; it goes
-        // beside the status there instead.
         let showLogs = model.launchLogs
         let sideLogs = showLogs && compact && geo.size.width > geo.size.height
-        return HStack(spacing: 12) {
-        VStack(spacing: 0) {
-        ScrollView {
-            VStack(spacing: compact ? 10 : 18) {
-                launchCover(entry).frame(width: compact ? 90 : 120, height: compact ? 135 : 180)
-                    .clipShape(RoundedRectangle(cornerRadius: 14)).shadow(radius: 20)
-                Text(entry.title).font(.title2.bold()).multilineTextAlignment(.center)
-                if dockStart.failure == nil { ProgressView().tint(.white) }
-                if let failure = dockStart.failure {
-                    Text("Madeira Dock stopped").font(.headline)
-                    Text(failure).font(.caption).multilineTextAlignment(.center).frame(maxWidth: 360)
-                } else if dockStart.active {
-                    // What the Dock start is waiting for, from the host's report, and what it
-                    // does with the game's one-time installs.
-                    TimelineView(.periodic(from: .now, by: 1)) { context in
-                        VStack(spacing: 8) {
-                            Text(dockStatus).foregroundStyle(.white.opacity(0.8)).multilineTextAlignment(.center)
-                            if let note = DockInstallers.note {
-                                Text(note).font(.caption).foregroundStyle(.white.opacity(0.6)).multilineTextAlignment(.center).frame(maxWidth: 360)
+        return ZStack {
+            HStack(spacing: 12) {
+                VStack(spacing: compact ? 16 : 26) {
+                    Spacer(minLength: 0)
+                    HStack(spacing: compact ? 34 : 48) {
+                        GameHubWindowsMark().frame(width: compact ? 58 : 70, height: compact ? 58 : 70)
+                        GameHubSwapArrows().frame(width: 30)
+                        GameHubLaunchIcon(entry: entry, appID: dockStart.appID).frame(width: compact ? 70 : 84, height: compact ? 70 : 84)
+                    }
+                    VStack(spacing: 12) {
+                        if let failure = dockStart.failure {
+                            Text("Madeira Dock stopped").font(.system(size: 18, weight: .medium))
+                            Text(failure).font(.caption).foregroundStyle(.white.opacity(0.7)).multilineTextAlignment(.center).frame(maxWidth: 380)
+                        } else {
+                            TimelineView(.periodic(from: .now, by: 1)) { context in
+                                VStack(spacing: 12) {
+                                    Text(dockStart.active ? dockStatus : model.launchSlow ? "Still launching…" : "Launching game…")
+                                        .font(.system(size: 17)).multilineTextAlignment(.center).frame(maxWidth: 420)
+                                    GameHubLaunchBar().frame(width: 270, height: 5)
+                                    if dockStart.active, let note = DockInstallers.note {
+                                        Text(note).font(.caption).foregroundStyle(.white.opacity(0.6)).multilineTextAlignment(.center).frame(maxWidth: 380)
+                                    }
+                                    Text("\(Int(context.date.timeIntervalSince(model.launchStartedAt)))s")
+                                        .font(.caption2.monospacedDigit()).foregroundStyle(.white.opacity(0.35))
+                                }
                             }
-                            Text("\(Int(context.date.timeIntervalSince(model.launchStartedAt)))s")
-                                .font(.caption.monospacedDigit()).foregroundStyle(.white.opacity(0.4))
+                        }
+                        if model.launchSlow && !dockStart.holding {
+                            Button("Show game view") { model.showGameView(reason: "button") }
+                                .font(.system(size: 14, weight: .medium)).frame(minHeight: 40)
+                        }
+                        if showLogs && !sideLogs {
+                            LibraryLiveLogs().frame(maxWidth: 550).frame(height: compact ? 80 : 120).clipped()
                         }
                     }
-                } else {
-                    TimelineView(.periodic(from: .now, by: 1)) { context in
-                        VStack(spacing: 8) {
-                            Text(model.launchSlow ? "Still starting…" : "Starting your game…").foregroundStyle(.white.opacity(0.7))
-                            Text("\(Int(context.date.timeIntervalSince(model.launchStartedAt)))s")
-                                .font(.caption.monospacedDigit()).foregroundStyle(.white.opacity(0.4))
-                        }
-                    }
+                    Spacer(minLength: 0)
                 }
-                // The starting screen's controls are one row of glyph-only buttons, so a
-                // short screen does not push them below the fold. The words stay as
-                // VoiceOver labels. A stopped Dock start can be closed; while a Dock start
-                // holds the desktop back, Show desktop reveals it.
-                HStack(spacing: 14) {
+                .frame(maxWidth: .infinity)
+                if sideLogs {
+                    LibraryLiveLogs().frame(width: min(420, geo.size.width * 0.42)).frame(height: max(0, available - 120)).clipped()
+                        .padding(.trailing, 16 + geo.safeAreaInsets.trailing)
+                }
+            }
+            // Corners: the controller, Madeira's buttons, "Powered by".
+            VStack {
+                HStack {
+                    Spacer()
+                    GameHubControllerPill()
+                }
+                Spacer()
+                HStack(alignment: .bottom, spacing: 12) {
                     if dockStart.failure != nil {
                         launchGlyph("Close session", "stop.circle") { model.requestQuit() }
                     }
@@ -4099,20 +4129,15 @@ struct LibraryHUD: View {
                         launchGlyph("Show desktop", "macwindow") { dockStart.showDesktop(model) }
                             .accessibilityHint("Shows the Windows desktop")
                     }
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 1) {
+                        Text("Powered by").font(.system(size: 10)).foregroundStyle(.white.opacity(0.5))
+                        Text("MADEIRA").font(.system(size: 12, weight: .heavy)).tracking(1.5).foregroundStyle(.white.opacity(0.75))
+                    }
                 }
-                if model.launchSlow && !dockStart.holding {
-                    Button("Show game view") { model.showGameView(reason: "button") }.frame(minHeight: 44)
-                }
-                if showLogs && !sideLogs {
-                    LibraryLiveLogs().frame(maxWidth: 550).frame(height: compact ? 90 : 120).clipped()
-                }
-            }.padding(16).frame(maxWidth: .infinity).frame(minHeight: available)
-        }
-        }.frame(maxWidth: .infinity)
-        if sideLogs {
-            LibraryLiveLogs().frame(width: min(420, geo.size.width * 0.45)).frame(height: max(0, available - 32)).clipped()
-                .padding(.trailing, 16 + geo.safeAreaInsets.trailing)
-        }
+            }
+            .padding(.horizontal, 24 + max(geo.safeAreaInsets.leading, geo.safeAreaInsets.trailing))
+            .padding(.vertical, 18)
         }
         .frame(width: geo.size.width, height: available)
         .padding(.top, geo.safeAreaInsets.top).foregroundStyle(.white).transition(.opacity)
@@ -4121,9 +4146,9 @@ struct LibraryHUD: View {
     private func launchGlyph(_ label: String, _ symbol: String, on: Bool = false,
                              action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 19, weight: .semibold))
-                .frame(width: 46, height: 46)
-                .background(Circle().fill(Color.white.opacity(on ? 0.32 : 0.16)))
+            Image(systemName: symbol).font(.system(size: 16, weight: .semibold))
+                .frame(width: 40, height: 40)
+                .background(Circle().fill(Color.white.opacity(on ? 0.28 : 0.1)))
                 .contentShape(Circle())
         }
         .buttonStyle(.plain).foregroundStyle(.white)

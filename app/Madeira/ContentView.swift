@@ -529,6 +529,12 @@ final class MetalBackedView: UIView {
         guard let v = getenv("MADEIRA_DESKTOP") else { return false }
         return v.pointee == 49  // '1'
     }
+    /// GamehubiOS: the pointer setting applies to every session. A game started
+    /// directly sent each touch as a Windows touch at the finger whatever the
+    /// setting said, so Absolute (trackpad) and Relative (mouse-look) only worked
+    /// in the Wine desktop. `env.MADEIRA_DIRECT_TOUCH = 1` restores that.
+    private static let directTouch = MadeiraConfig.flag("MADEIRA_DIRECT_TOUCH", fallback: false)
+    private var trackpadMode: Bool { desktopMode || !Self.directTouch }
     private func envInt(_ name: String, _ def: Int) -> Int {
         guard let v = getenv(name), let i = Int(String(cString: v)) else { return def }
         return i
@@ -553,7 +559,7 @@ final class MetalBackedView: UIView {
     private func tmgFilter(_ touches: Set<UITouch>, _ phase: UITouch.Phase) -> Set<UITouch>? {
         if phase == .began {
             _ = TouchMouseGate.mode   // logs the mode once
-            guard TouchMouseGate.suppressing(touchpad: touchPointerMode, desktop: desktopMode) else { return touches }
+            guard TouchMouseGate.suppressing(touchpad: touchPointerMode || InputSettings.shared.relative, desktop: desktopMode) else { return touches }
             let direct = touches.filter { $0.type == .direct }
             guard !direct.isEmpty else { return touches }
             for t in direct { tmgSwallowed.insert(ObjectIdentifier(t)) }
@@ -574,7 +580,7 @@ final class MetalBackedView: UIView {
         if HardwareInput.shared.interceptTouches(touches, event, .began) { return }
         guard let touches = tmgFilter(touches, .began) else { return }
         if touchPointerMode { touchModeBegan(touches); return }
-        guard desktopMode else {
+        guard trackpadMode else {
             guard let t = touches.first else { return }
             let (x, y) = mapTouch(t)
             winios_post_touch_down(x, y)
@@ -621,7 +627,7 @@ final class MetalBackedView: UIView {
         if HardwareInput.shared.interceptTouches(touches, event, .moved) { return }
         guard let touches = tmgFilter(touches, .moved) else { return }
         if touchPointerMode { touchModeMoved(touches, event); return }
-        guard desktopMode else {
+        guard trackpadMode else {
             guard let t = touches.first else { return }
             let (x, y) = mapTouch(t)
             winios_post_touch_move(x, y)
@@ -703,7 +709,7 @@ final class MetalBackedView: UIView {
         if HardwareInput.shared.interceptTouches(touches, event, .ended) { return }
         guard let touches = tmgFilter(touches, .ended) else { return }
         if touchPointerMode { touchModeEnded(touches, event); return }
-        guard desktopMode else {
+        guard trackpadMode else {
             guard let t = touches.first else { return }
             let (x, y) = mapTouch(t)
             winios_post_touch_up(x, y)
@@ -747,7 +753,7 @@ final class MetalBackedView: UIView {
         if HardwareInput.shared.interceptTouches(touches, event, .cancelled) { return }
         guard let touches = tmgFilter(touches, .cancelled) else { return }
         if touchPointerMode { touchModeCancelled(touches); return }
-        guard desktopMode else {
+        guard trackpadMode else {
             guard let t = touches.first else { return }
             let (x, y) = mapTouch(t)
             winios_post_touch_up(x, y)
@@ -1181,7 +1187,7 @@ final class InputSettings: ObservableObject {
     /// Touch pointer mode (MetalBackedView.touchModeBegan): tap to click where
     /// the finger is, hold or move to drag. Checked before `relative`; the
     /// library's pointer picker keeps the two mutually exclusive.
-    @Published var touchMode = false { didSet { save() } }
+    @Published var touchMode = true { didSet { save() } }   // GamehubiOS: Touch on a fresh install
     /// ml649: heavy diagnostics. Default OFF so the shipped default is the fast
     /// path; flip it on only when a run needs to be explainable.
     @Published var diagnostics = false { didSet { madeira_set_diag_enabled(diagnostics ? 1 : 0); save() } }
@@ -1217,7 +1223,7 @@ final class InputSettings: ObservableObject {
             relative = j["relative"] as? Bool   ?? false
             sensAbs  = j["sensAbs"]  as? Double ?? 2.0
             sensRel  = j["sensRel"]  as? Double ?? 2.0
-            touchMode = j["touchMode"] as? Bool ?? false
+            touchMode = j["touchMode"] as? Bool ?? true
             diagnostics = j["diagnostics"] as? Bool ?? false
             sensMouse = j["sensMouse"] as? Double ?? 1.0
             ignoreTouchesWithMouse = j["ignoreTouchesWithMouse"] as? Bool ?? true
