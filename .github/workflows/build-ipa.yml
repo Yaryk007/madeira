@@ -865,7 +865,12 @@ jobs:
       # carry them: they come from the official APK at build time. Without them
       # the app falls back to SF Symbols.
       - name: GameHub logo and icons (official APK)
-        run: python3 tools/gamehub-assets.py || echo "::warning::GameHub assets unavailable; the app uses SF Symbols"
+        run: |
+          python3 tools/gamehub-assets.py || echo "::warning::GameHub assets unavailable; the app uses SF Symbols"
+          if [ -f app/Madeira/Assets.xcassets/GameHub/GameHubAppIcon.appiconset/AppIcon.png ]; then
+            sed -i '' 's/ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;/ASSETCATALOG_COMPILER_APPICON_NAME = GameHubAppIcon;/' app/Madeira.xcodeproj/project.pbxproj
+            grep -c GameHubAppIcon app/Madeira.xcodeproj/project.pbxproj
+          fi
 
       - name: Stamp version 0.1.${{ github.run_number }}
         run: |

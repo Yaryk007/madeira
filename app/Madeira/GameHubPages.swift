@@ -229,7 +229,7 @@ struct GameHubHomePage: View {
                 case 0: recommended
                 case 1: pcGames
                 default:
-                    GameHubEmptyState(title: "No retro games", message: "Retro consoles are not supported in GamehubiOS yet.")
+                    GameHubEmptyState(title: "No retro games", message: "Retro consoles are not supported in GameHub yet.")
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

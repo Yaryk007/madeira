@@ -169,7 +169,7 @@ struct GameHubCommunityPage: View {
         switch model.state {
         case .notConnected:
             GameHubEmptyState(title: model.feed == .following ? "Nothing from your follows yet" : "Community isn't connected",
-                              message: "This build of GamehubiOS has no connection to GameHub's community servers yet, so there are no posts to show.",
+                              message: "This build of GameHub has no connection to GameHub's community servers yet, so there are no posts to show.",
                               action: model.feed == .following ? ("Discover", { withAnimation(ConsoleHomeView.motion) { model.feed = .circle } }) : nil)
         case .loading where model.posts.isEmpty:
             ProgressView().tint(.white).frame(maxWidth: .infinity, maxHeight: .infinity)

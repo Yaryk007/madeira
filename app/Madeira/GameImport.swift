@@ -278,7 +278,7 @@ struct GameImportOverlay: View {
                         option("Game folder", icon: "folder.badge.plus") { model.menu = false; model.picker = .folder(start: nil, exeName: nil) }
                         option("Browse drive_c", icon: "internaldrive") { model.menu = false; browse() }
                     }
-                    Text("The game is copied into GamehubiOS, so it can stay where it is now.")
+                    Text("The game is copied into GameHub, so it can stay where it is now.")
                         .font(.system(size: 13)).foregroundStyle(GameHub.secondary).padding(.top, 14)
                 }
             } else if let exe = model.pendingExe {

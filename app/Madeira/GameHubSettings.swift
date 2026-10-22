@@ -122,9 +122,9 @@ struct GameHubSettingsPage: View {
         }
         .task(id: category) { if category == .storage { await measureStorage() } }
         .sheet(item: $sheet, onDismiss: { refresh += 1 }) { sheetContent($0) }
-        .alert("Restart GamehubiOS", isPresented: $restartNotice) {
+        .alert("Restart GameHub", isPresented: $restartNotice) {
             Button("OK", role: .cancel) {}
-        } message: { Text("Close GamehubiOS from the app switcher and open it again to switch interfaces.") }
+        } message: { Text("Close GameHub from the app switcher and open it again to switch interfaces.") }
         .confirmationDialog("Log out of Steam?", isPresented: $signOut, titleVisibility: .visible) {
             Button("Log out", role: .destructive) { steamAccount.signOut() }
         }
@@ -196,7 +196,7 @@ struct GameHubSettingsPage: View {
             case .about:
                 VStack(spacing: 10) {
                     GameHubLogo(kind: .wordmark).frame(height: 46)
-                    Text("GamehubiOS").font(.system(size: 13)).foregroundStyle(GameHub.secondary)
+                    Text("Powered by Madeira").font(.system(size: 13)).foregroundStyle(GameHub.secondary)
                 }
                 .frame(maxWidth: .infinity).padding(.vertical, 28)
                 .background(GameHubCard(cornerRadius: 22)).padding(.bottom, 18)
@@ -317,17 +317,17 @@ struct GameHubSettingsPage: View {
             return list
         case .mode:
             return [
-                .check("explore", "Explore", detail: "GamehubiOS's home: Library, Community, Home, Ranking and Profile.", gamehubHome, { gamehubHome = true }),
+                .check("explore", "Explore", detail: "GameHub's home: Library, Community, Home, Ranking and Profile.", gamehubHome, { gamehubHome = true }),
                 .check("classic", "Classic library", detail: "Madeira's touch library with its tab bar.", !gamehubHome, { gamehubHome = false }),
                 .header("Advanced"),
                 .toggle("developer", "Developer interface", detail: "Madeira's original diagnostic screen. Applies after a restart.",
                         Binding(get: { developerUI }, set: { on in developerUI = on; FrontendChoice.choose(new: !on); restartNotice = true })),
             ]
         case .language:
-            return [.check("en", "English", detail: "GamehubiOS is in English for now.", true, {})]
+            return [.check("en", "English", detail: "GameHub is in English for now.", true, {})]
         case .notifications:
             return [.toggle("push", "Push Notifications",
-                            detail: "Please change this in your phone settings under \"Notifications\" for GamehubiOS",
+                            detail: "Please change this in your phone settings under \"Notifications\" for GameHub",
                             Binding(get: { notifications ?? false }, set: { _ in
                                 if let url = URL(string: UIApplication.openNotificationSettingsURLString) { UIApplication.shared.open(url) }
                             }))]
@@ -376,7 +376,7 @@ struct GameHubSettingsPage: View {
             return [
                 .info("version", "Version", value: BuildStamp.text),
                 .nav("credits", "Credits", action: { sheet = .credits }),
-                .nav("madeira", "Madeira", detail: "GamehubiOS runs on Madeira by Will Faust.", action: { open("https://github.com/willfaust/madeira") }),
+                .nav("madeira", "Madeira", detail: "GameHub runs on Madeira by Will Faust.", action: { open("https://github.com/willfaust/madeira") }),
             ]
         }
     }

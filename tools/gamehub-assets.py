@@ -19,6 +19,10 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "app", "Madeira", "Assets.xcassets", "GameHub")
 CONFIG = "https://gamehub.xiaoji.com/en/download/apk/config"
 RES = "assets/composeResources/com.xiaoji.egggame."
+# GameHub's iOS app (id6717579482), for its 1024 px icon; the CI step then
+# points ASSETCATALOG_COMPILER_APPICON_NAME at APPICON.
+ITUNES = "https://itunes.apple.com/lookup?id=6717579482&country=us"
+APPICON = "GameHubAppIcon"
 
 # asset name -> (resource path under composeResources, template rendering)
 ASSETS = {
@@ -221,6 +225,19 @@ def main():
                     print("could not convert", path); continue
                 with open(dst, "rb") as f: write_set(name, name + ".png", f.read(), template, False)
             written += 1
+    # The app icon: GameHub's own, 1024 px, from its App Store listing (Apple's iTunes lookup).
+    try:
+        lookup = json.load(urllib.request.urlopen(ITUNES, timeout=60))["results"][0]["artworkUrl512"]
+        art = urllib.request.urlopen(re.sub(r"/\d+x\d+bb\.\w+$", "/1024x1024bb.png", lookup), timeout=60).read()
+        folder = os.path.join(OUT, APPICON + ".appiconset")
+        os.makedirs(folder, exist_ok=True)
+        with open(os.path.join(folder, "AppIcon.png"), "wb") as f: f.write(art)
+        with open(os.path.join(folder, "Contents.json"), "w") as f:
+            json.dump({"images": [{"filename": "AppIcon.png", "idiom": "universal", "platform": "ios", "size": "1024x1024"}],
+                       "info": {"author": "xcode", "version": 1}}, f, indent=2)
+        print("app icon:", APPICON)
+    except Exception as e:
+        print("app icon unavailable:", e)
     shutil.rmtree(work, ignore_errors=True)
     print(f"GameHub assets: {written}/{len(ASSETS)} written to {os.path.relpath(OUT, ROOT)}")
 

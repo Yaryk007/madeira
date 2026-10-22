@@ -897,7 +897,7 @@ struct GameHubFirstRunPage: View {
                 }
                 .frame(height: 120)
                 Text("No game files detected").font(.system(size: 18)).padding(.top, 8)
-                Text("Choose your game's folder; GamehubiOS copies it in and adds it to your library.")
+                Text("Choose your game's folder; GameHub copies it in and adds it to your library.")
                     .font(.system(size: 14)).foregroundStyle(.white.opacity(0.6))
                 Button(action: selectFolder) {
                     Text("Select Folder Manually").font(.system(size: 18))
