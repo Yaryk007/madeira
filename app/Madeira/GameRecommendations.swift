@@ -529,6 +529,28 @@ enum GameRecommendations {
     /// that reserves, releases and reserves again inside the same range never gets it
     /// back: Madeira Dock spun on "Loading Steam" before Thumper. The game lists that
     /// were tested with those defaults keep them. No switches.
+    /// Stray (Unreal Engine 4), from GameHub's tests on an 8 GB iPhone 16e
+    /// (2026-10-23): with the 4 GB video memory every game is told by default,
+    /// the footprint climbed to 5.99 GB in play and iOS closed the app at a
+    /// cutscene (limit about 5.75 GB), a 4 GB paging file in classic coverage
+    /// moving little of it. Unreal sizes its texture pool from the video memory
+    /// and its caches from the available memory, so both are reported as what
+    /// the phone can hold: 2 GB of video memory and the memory left before the
+    /// app's limit (avail-phys); paging takes whole reservations down to 1 MB.
+    static let stray = GameRecommendation(
+        id: "stray", title: "Stray", version: 1,
+        config: """
+        # GameHub's recommended settings for Stray.
+        # Reset to Recommended, at the bottom of the game's settings, brings them back.
+        vram-mb = 2048
+        avail-phys = 1
+        swap-mb = 4096
+        swap-mode = 2
+        swap-min-mb = 1
+        env.MADEIRA_EC_HOOK_TRACE = 0
+        """,
+        avx: false, fastSync: true, semaphoreFastPath: false, resolution: "1280x720", display: "fit")
+
     static let standard = GameRecommendation(
         id: "standard", title: "games without a list of their own", version: 3,
         config: """
@@ -538,13 +560,13 @@ enum GameRecommendations {
         """)
 
     static let all = [rdr2Steam, rdr2Other, gta5EnhancedSteam, gta5EnhancedOther, ghostOfTsushima, godOfWar, horizonZeroDawn,
-                      standard]
+                      stray, standard]
 
     // MARK: Recognising a game
 
     /// Steam App IDs.
     static let rdr2AppID = 1174180, gta5EnhancedAppID = 3240220, ghostAppID = 2215430, godOfWarAppID = 1593500,
-               horizonZeroDawnAppID = 1151640
+               horizonZeroDawnAppID = 1151640, strayAppID = 1332010
 
     /// The recommendation for a game, or nil.
     /// - windowsPath: a program ("C:\Games\GoW\GoW.exe"), or a library Steam
@@ -566,6 +588,7 @@ enum GameRecommendations {
                 || installFolder == "ghost of tsushima" { return ghostOfTsushima }
             if steamAppID == godOfWarAppID || installFolder == "godofwar" || installFolder == "god of war" { return godOfWar }
             if steamAppID == horizonZeroDawnAppID || installFolder == "horizon zero dawn" { return horizonZeroDawn }
+            if steamAppID == strayAppID || installFolder == "stray" { return stray }
             return nil
         }
         // A program, wherever it was installed: only the game's own programs, so a
@@ -586,6 +609,8 @@ enum GameRecommendations {
             return godOfWar
         case "horizonzerodawn.exe":
             return horizonZeroDawn
+        case "stray.exe", "stray-win64-shipping.exe":
+            return stray
         default:
             return nil
         }

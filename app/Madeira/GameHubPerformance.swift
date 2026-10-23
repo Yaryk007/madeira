@@ -62,7 +62,7 @@ enum GameHubPerformance {
             // rest keep the standard pool (3 GB devices Lite's 512 MB), and Overclock
             // there is the speed settings alone.
             return ["eco": nil, "pool": memoryGB >= 11 ? "1152" : memoryGB < 3.5 ? "512" : nil,
-                    "vram-mb": memoryGB < 3.5 ? "512" : nil, "env.MADEIRA_PROMOTE": "1", "env.MADEIRA_LEAN_DIAG": "1",
+                    "vram-mb": memoryGB < 11 ? String(deviceVideoMemory) : nil, "env.MADEIRA_PROMOTE": "1", "env.MADEIRA_LEAN_DIAG": "1",
                     "env.MADEIRA_SRV_DIRECT": "1", "env.MADEIRA_ECO_NATIVE": nil, "env.MADEIRA_DOCK_COMPACT_POOL": nil,
                     // Full-speed games use more memory: paging backs it under 11 GB (8 GB
                     // iPhones read as about 7.5 GB) unless paging is already set larger.
@@ -106,8 +106,27 @@ enum GameHubPerformance {
         LogStore.shared.log("[performance] mode \(old.rawValue) -> \(new.rawValue) memory=\(String(format: "%.1f", memoryGB))GB")
     }
 
+    /// Video memory every game is told it has, by the device's memory: without
+    /// vram-mb the runtime reports 4 GB, which on an 8 GB iPhone (an app limit of
+    /// about 5.75 GB) let Stray fill 4 GB with textures iOS cannot page out. Under
+    /// 11 GB GameHub writes a device-sized figure once, and the available memory
+    /// games see becomes what is left before the app's limit (avail-phys), which
+    /// Unreal and Chromium size their caches by. A value already in madeira.cfg
+    /// (the player's) is kept; a game's own list wins over both.
+    static let memoryDefaultsKey = "gamehubMemoryDefaults1"
+    static var deviceVideoMemory: Int { memoryGB < 3.5 ? 512 : memoryGB < 5 ? 1024 : memoryGB < 6.6 ? 1536 : 2048 }
+    static func applyMemoryDefaultsIfNeeded() {
+        guard !UserDefaults.standard.bool(forKey: memoryDefaultsKey) else { return }
+        UserDefaults.standard.set(true, forKey: memoryDefaultsKey)
+        guard memoryGB < 11 else { return }
+        if MadeiraConfig.get("vram-mb") == nil { _ = MadeiraConfig.set("vram-mb", String(deviceVideoMemory)) }
+        if MadeiraConfig.get("avail-phys") == nil { _ = MadeiraConfig.set("avail-phys", "1") }
+        LogStore.shared.log("[performance] memory defaults: vram-mb=\(MadeiraConfig.get("vram-mb") ?? "-") avail-phys=\(MadeiraConfig.get("avail-phys") ?? "-")")
+    }
+
     /// First start on a low-memory device: Lite is written once, as if chosen.
     static func applyRecommendedIfNeeded() {
+        applyMemoryDefaultsIfNeeded()
         // A mode chosen in an earlier build is written again with this build's values
         // (Overclock no longer enlarges the pool on 8 GB devices).
         if let raw = UserDefaults.standard.string(forKey: modeKey), let chosen = PerformanceMode(rawValue: raw) {
