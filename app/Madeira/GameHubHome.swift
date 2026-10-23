@@ -249,6 +249,20 @@ struct GameHubHomeView: View {
                               dismiss: { removeEntry = nil })
                     .transition(.opacity)
             }
+            if let error = model.error, jitProblem == nil {
+                GameHubNotice(message: error, confirm: "OK", cancel: nil, confirmed: {}, dismiss: { model.error = nil }).transition(.opacity)
+            } else if let notice = model.restartNotice {
+                GameHubNotice(title: "Restart GameHub", message: notice, confirm: "Close GameHub",
+                              confirmed: {
+                                  LogStore.shared.log("[session-once] closed by the user for a restart")
+                                  exit(0)
+                              }, dismiss: { model.restartNotice = nil })
+                    .transition(.opacity)
+            } else if let notice = model.jitNotice {
+                GameHubNotice(title: "Enable JIT", message: notice, confirm: "Enable JIT",
+                              confirmed: { enableJIT() }, dismiss: { model.jitNotice = nil })
+                    .transition(.opacity)
+            }
             GameHubSplash()
         }
         .animation(.easeInOut(duration: 0.18), value: page)
@@ -269,8 +283,10 @@ struct GameHubHomeView: View {
         .toolbar(.hidden, for: .navigationBar)
         .statusBarHidden(true)
         .persistentSystemOverlays(.hidden)
+        // A JIT connection problem keeps iOS's alert (its several actions); other
+        // errors, Restart and Enable JIT are GameHub's Notice (overlays below).
         .alert(jitProblem == nil ? "Library" : "Couldn't Enable JIT",
-               isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
+               isPresented: Binding(get: { model.error != nil && jitProblem != nil }, set: { if !$0 { model.error = nil } })) {
             if let jitProblem { jitConnectionActions(jitProblem, retry: enableJIT) { model.error = nil } }
             Button("OK", role: .cancel) { model.error = nil }
         } message: { Text(model.error ?? "") }
@@ -279,8 +295,9 @@ struct GameHubHomeView: View {
             NavigationStack { ExecutableBrowser(folder: LibraryModel.drive) { entry in
                 model.save(entry); browser = false; selected = entry
             } }
+            .gameHubSheet()
         }
-        .sheet(isPresented: $steamSignIn) { SteamSignInView() }
+        .sheet(isPresented: $steamSignIn) { SteamSignInView().gameHubSheet() }
         .sheet(item: $selected) { entry in
             LibraryDetail(entry: entry, play: { profile in
                 play(profile)
@@ -288,6 +305,7 @@ struct GameHubHomeView: View {
                     if selected?.id == entry.id, model.startingJIT != entry.id { selected = nil }
                 }
             })
+            .gameHubSheet()
         }
         .onChange(of: model.current) { _, current in if current != nil { selected = nil } }
         .onChange(of: model.error) { _, error in if error != nil { selected = nil } }

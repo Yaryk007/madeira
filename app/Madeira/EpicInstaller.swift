@@ -34,8 +34,13 @@ struct EpicManifest {
     // MARK: Binary manifest
 
     init(data: Data) throws {
+        var probe = EpicReader(data)
+        if try probe.u32() == 0x44BEC00C { try self.init(binary: data) } else { try self.init(json: data) }
+    }
+
+    private init(binary data: Data) throws {
         var header = EpicReader(data)
-        guard try header.u32() == 0x44BEC00C else { try self.init(json: data); return }
+        _ = try header.u32()
         let headerSize = Int(try header.u32())
         let uncompressed = Int(try header.u32())
         let compressed = Int(try header.u32())

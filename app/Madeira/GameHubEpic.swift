@@ -54,7 +54,7 @@ struct GameHubEpicContent: View {
                               confirm: "Stop", confirmed: { installer.cancel(game.appName) }, dismiss: { cancelling = nil })
             }
         }
-        .sheet(isPresented: $login) { EpicLoginSheet { code in login = false; Task { await store.signIn(code: code) } } }
+        .sheet(isPresented: $login) { EpicLoginSheet { code in login = false; Task { await store.signIn(code: code) } }.gameHubSheet() }
         .alert("Epic", isPresented: Binding(get: { installer.failure != nil }, set: { if !$0 { installer.failure = nil } })) {
             Button("OK", role: .cancel) { installer.failure = nil }
         } message: { Text(installer.failure?.message ?? "") }

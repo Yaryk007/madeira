@@ -292,6 +292,8 @@ struct GameHubNotice: View {
     let message: String
     var option: (String, Binding<Bool>)? = nil
     var confirm = "Confirm"
+    /// nil: only the blue button (a message to acknowledge).
+    var cancel: String? = "Cancel"
     let confirmed: () -> Void
     let dismiss: () -> Void
 
@@ -313,10 +315,12 @@ struct GameHubNotice: View {
                     .buttonStyle(.plain).padding(.top, 12).padding(.horizontal, 20)
                 }
                 HStack(spacing: 12) {
-                    Button(action: dismiss) {
-                        Text("Cancel").font(.system(size: 17)).frame(maxWidth: .infinity).frame(height: 48)
-                            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.1)))
-                            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.white.opacity(0.14)))
+                    if let cancel {
+                        Button(action: dismiss) {
+                            Text(cancel).font(.system(size: 17)).frame(maxWidth: .infinity).frame(height: 48)
+                                .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.1)))
+                                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.white.opacity(0.14)))
+                        }
                     }
                     Button { dismiss(); confirmed() } label: {
                         Text(confirm).font(.system(size: 17)).frame(maxWidth: .infinity).frame(height: 48)
@@ -680,4 +684,34 @@ struct GameHubSteamUnbound: View {
         }
         .frame(maxWidth: .infinity)
     }
+}
+
+// MARK: - GameHub look for system sheets
+
+/// GameHub's look over iOS's sheets and forms (game settings, sign-in, the file
+/// browser, settings pages): GameHub's near-black page with its cool glow,
+/// dark rows, GameHub blue and a dark bar.
+struct GameHubSheetStyle: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .scrollContentBackground(.hidden)
+            .background {
+                ZStack {
+                    Color(red: 14 / 255, green: 14 / 255, blue: 16 / 255)
+                    RadialGradient(colors: [Color(red: 30 / 255, green: 32 / 255, blue: 43 / 255), .clear],
+                                   center: .center, startRadius: 0, endRadius: 520)
+                }
+                .ignoresSafeArea()
+            }
+            .toolbarBackground(Color(red: 14 / 255, green: 14 / 255, blue: 16 / 255), for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .tint(GameHub.link)
+            .preferredColorScheme(.dark)
+            .environment(\.colorScheme, .dark)
+    }
+}
+
+extension View {
+    func gameHubSheet() -> some View { modifier(GameHubSheetStyle()) }
 }

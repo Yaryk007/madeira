@@ -1320,7 +1320,8 @@ struct ContentView: View {
             // progressive blur (as in the App Store), with no hard edge.
             .toolbarBackground(library.enabled && !Self.systemScrollEdge ? .visible : .automatic, for: .navigationBar)
             // A second session cannot start in this process; offer to close Madeira.
-            .alert("Restart Madeira", isPresented: Binding(get: { library.restartNotice != nil },
+            // GameHub's home shows these two as its own Notice (GameHubHome.swift).
+            .alert("Restart Madeira", isPresented: Binding(get: { library.restartNotice != nil && !(library.enabled && consoleHome && library.current == nil) },
                                                             set: { if !$0 { library.restartNotice = nil } })) {
                 Button("Close Madeira") {
                     LogStore.shared.log("[session-once] closed by the user for a restart")
@@ -1329,12 +1330,12 @@ struct ContentView: View {
                 Button("Later", role: .cancel) { library.restartNotice = nil }
             } message: { Text(library.restartNotice ?? "") }
             // CS_DEBUGGED without a debugger (JIT enabled outside Madeira): offer Madeira's own request.
-            .alert("Enable JIT", isPresented: Binding(get: { library.jitNotice != nil },
+            .alert("Enable JIT", isPresented: Binding(get: { library.jitNotice != nil && !(library.enabled && consoleHome && library.current == nil) },
                                                       set: { if !$0 { library.jitNotice = nil } })) {
                 Button("Enable JIT") { library.jitNotice = nil; enableJIT() }
                 Button("Later", role: .cancel) { library.jitNotice = nil }
             } message: { Text(library.jitNotice ?? "") }
-            .sheet(isPresented: $jitCoordinator.showSetup) { JITSetupView() }
+            .sheet(isPresented: $jitCoordinator.showSetup) { JITSetupView().gameHubSheet() }
             // A Steam game's saves may not be the latest (cloudClear).
             .alert(library.cloudNotice?.title ?? "Steam Cloud", isPresented: Binding(get: { library.cloudNotice != nil },
                                                                                      set: { if !$0 { library.cloudNotice = nil } })) {

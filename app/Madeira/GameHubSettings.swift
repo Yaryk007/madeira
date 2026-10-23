@@ -109,15 +109,22 @@ struct GameHubSettingsPage: View {
                 categoryColumn.frame(width: 243, height: geo.size.height)
                 ScrollViewReader { reader in
                     ScrollView(.vertical, showsIndicators: false) {
-                        panel.padding(.bottom, 40).id(category)
+                        VStack(spacing: 0) {
+                            Color.clear.frame(height: 0).id("panel-top")
+                            panel.padding(.bottom, 40).id(category)
+                        }
                     }
                     .scrollBounceBehavior(.always, axes: .vertical)
                     .frame(maxWidth: .infinity)
                     .frame(height: geo.size.height)
                     .clipped()
                     .onChange(of: row) { _, value in
-                        if let value { withAnimation(ConsoleHomeView.motion) { reader.scrollTo("row-\(value)", anchor: .center) } }
+                        // The focused row stays in view; back on the categories, the panel returns to its top.
+                        withAnimation(ConsoleHomeView.motion) {
+                            if let value { reader.scrollTo("row-\(value)", anchor: .center) } else { reader.scrollTo("panel-top", anchor: .top) }
+                        }
                     }
+                    .onChange(of: category) { _, _ in reader.scrollTo("panel-top", anchor: .top) }
                 }
             }
             .padding(.leading, 54).padding(.trailing, 54)
@@ -134,7 +141,7 @@ struct GameHubSettingsPage: View {
             }
         }
         .task(id: category) { if category == .storage { await measureStorage() } }
-        .sheet(item: $sheet, onDismiss: { refresh += 1 }) { sheetContent($0) }
+        .sheet(item: $sheet, onDismiss: { refresh += 1 }) { sheetContent($0).gameHubSheet() }
         .alert("Restart GameHub", isPresented: $restartNotice) {
             Button("OK", role: .cancel) {}
         } message: { Text("Close GameHub from the app switcher and open it again to switch interfaces.") }
@@ -150,6 +157,9 @@ struct GameHubSettingsPage: View {
     // MARK: Categories
 
     private var categoryColumn: some View {
+        // The column follows the focused category, so a controller reaches the
+        // ones below the screen (Storage, Download Tasks, Feedback, About).
+        ScrollViewReader { reader in
         ScrollView(.vertical, showsIndicators: false) {
             VStack(spacing: 16) {
                 categoryCard(Category.allCases.filter { !$0.secondGroup })
@@ -166,6 +176,10 @@ struct GameHubSettingsPage: View {
         }
         .scrollBounceBehavior(.always, axes: .vertical)
         .clipped()
+        .onChange(of: category) { _, value in
+            withAnimation(ConsoleHomeView.motion) { reader.scrollTo("cat-\(value.rawValue)", anchor: .center) }
+        }
+        }
     }
 
     private func categoryCard(_ list: [Category]) -> some View {
@@ -187,6 +201,7 @@ struct GameHubSettingsPage: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .id("cat-\(c.rawValue)")
                 if i < list.count - 1 {
                     Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1).padding(.leading, 20).padding(.trailing, 18)
                 }
