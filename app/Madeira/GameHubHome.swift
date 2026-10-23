@@ -153,6 +153,7 @@ struct GameHubHomeView: View {
     @State private var myGamesTab = 0
     @State private var steamTab = 0
     @State private var steamIndex = 0
+    @State private var epicTab = 0
     @State private var homeSection = 0
     @State private var selected: LibraryEntry?
     @State private var browser = false
@@ -182,7 +183,7 @@ struct GameHubHomeView: View {
     private var jitProblem: JITCoordinator.ConnectionProblem? {
         jit.connectionProblem.flatMap { model.error == $0.message ? $0 : nil }
     }
-    private var myGames: [LibraryEntry] { games.filter { $0.steamAppID == nil && $0.desktop != true } }
+    private var myGames: [LibraryEntry] { games.filter { $0.steamAppID == nil && $0.epicApp == nil && $0.desktop != true } }
     private var steamGamesList: [LibraryEntry] { games.filter { $0.steamAppID != nil } }
     private var showFirstRun: Bool { !firstRunDone && !onboarding.presented && !games.contains { $0.desktop != true } }
     private var showImportHint: Bool { firstRunDone && !importHintDone && tab == .library && shelf == nil && page == nil && !modal }
@@ -411,10 +412,9 @@ struct GameHubHomeView: View {
                 }
             }
         case .epic?:
-            GameHubShelfPage(title: "Epic", back: closeShelf) {
-                GameHubEmptyState(title: "Epic Games Store",
-                                  message: "Signing in to Epic is not supported yet. Games you installed elsewhere can be added with Import.",
-                                  action: ("Import", { importer.start() }))
+            GameHubGamesPage(title: "Epic", tabs: EpicStore.shared.signedIn ? ["Installed", "All Games"] : [], tab: $epicTab,
+                             sortTitle: nil, back: closeShelf) {
+                GameHubEpicContent(tab: epicTab, play: { entry in launch([entry], at: 0) })
             }
         case .importGame?:
             EmptyView()

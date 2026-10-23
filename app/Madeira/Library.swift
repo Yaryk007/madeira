@@ -227,6 +227,10 @@ struct LibraryEntry: Codable, Identifiable {
     var overlayFields: [String]?
     /// The Wine desktop (explorer and services in a virtual desktop).
     var desktop: Bool?
+    /// GameHub: an Epic Games Store game (EpicStore.swift): its app name and
+    /// namespace, for the Epic launcher's arguments at each start.
+    var epicApp: String?
+    var epicNamespace: String?
     /// Touch controls' opacity (0.15...1, nil = 0.7) and overall size (0.5...2,
     /// nil = 1) in this game's sessions.
     var controlOpacity: Double?
@@ -344,7 +348,12 @@ struct LibraryEntry: Codable, Identifiable {
     var runsInDesktop: Bool { usesLaunchOptions && launchMode == "desktop" }
     /// The program's own arguments: Steam's launch configuration for "The game",
     /// else the entry's Launch arguments.
-    var programArguments: String { startsSteamGameDirectly ? (steamProgramArguments ?? "") : arguments }
+    var programArguments: String {
+        let base = startsSteamGameDirectly ? (steamProgramArguments ?? "") : arguments
+        // GameHub: an Epic game's sign-in arguments for this one launch (never saved).
+        guard let epic = EpicStore.pendingArguments[id], !epic.isEmpty else { return base }
+        return base.isEmpty ? epic : base + " " + epic
+    }
     /// ml1163: the directory the program starts in (MADEIRA_WORKDIR): the chosen
     /// working folder, else Steam's for "The game", else the program's own folder.
     /// A desktop-mode game inherits explorer's directory and a .bat runs as

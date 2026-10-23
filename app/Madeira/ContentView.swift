@@ -2532,6 +2532,23 @@ struct ContentView: View {
     /// applies the entry's launch profile and runs the same full sequence as the
     /// developer interface's buttons.
     private func launchLibraryEntry(_ entry: LibraryEntry) {
+        // GameHub: an Epic game first gets a fresh Epic launch code (EpicStore), then starts.
+        if let app = entry.epicApp, EpicStore.pendingArguments[entry.id] == nil {
+            Task { @MainActor in
+                do {
+                    EpicStore.pendingArguments[entry.id] = try await EpicStore.shared.launchArguments(for: (app, entry.epicNamespace ?? ""))
+                    LogStore.shared.log("[epic] launch \(app) with an exchange code")
+                } catch {
+                    // Offline games still start; Epic's online features then stay signed out.
+                    EpicStore.pendingArguments[entry.id] = ""
+                    LogStore.shared.log("[epic] launch \(app) without Epic sign-in: \(error.localizedDescription)")
+                }
+                launchLibraryEntry(entry)
+                // The code is single use; the next start asks for a new one.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 30) { EpicStore.pendingArguments[entry.id] = nil }
+            }
+            return
+        }
         // madeira-bcd: a game seen for the first time starts with Madeira's recommended
         // settings (GameRecommendationsApply.swift).
         var entry = entry
