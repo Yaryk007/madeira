@@ -95,6 +95,9 @@ struct GameHubSettingsPage: View {
     @State private var memoryPlus = false
     @State private var storage: (drive: Int64, free: Int64, cache: Int64)?
     @State private var refresh = 0
+    @State private var perfMode = GameHubPerformance.mode
+    @State private var paging = GameHubPerformance.paging
+    @State private var perfChanged = false
 
     var body: some View {
         // GameHub's Settings (measured): a 243 pt category column 54 pt from the
@@ -365,7 +368,24 @@ struct GameHubSettingsPage: View {
                 .toggle("launch", "Game Launch", detail: "Haptic when a game starts successfully", $launchHaptic),
             ]
         case .system:
-            var list: [GameHubRow] = [
+            // GameHub: performance modes and paging (GameHubPerformance.swift).
+            var list: [GameHubRow] = [.header("Performance mode")]
+            for mode in PerformanceMode.allCases {
+                list.append(.check("perf-\(mode.rawValue)", mode.title, detail: mode.detail, perfMode == mode,
+                                   { GameHubPerformance.apply(mode); perfMode = mode; perfChanged = true }))
+            }
+            list.append(.header("Paging"))
+            list.append(.nav("paging", "Paging file", detail: "Moves game memory to storage when memory runs short, so bigger games fit. Some speed cost; uses free storage.",
+                             value: GameHubPerformance.pagingLabel(paging)) {
+                let next = GameHubLibraryNext.next(paging, in: GameHubPerformance.pagingChoices)
+                GameHubPerformance.setPaging(next); paging = next; perfChanged = true
+            })
+            list.append(.info("memory-total", "Device memory", value: String(format: "%.1f GB", GameHubPerformance.memoryGB)))
+            list.append(.info("storage-free", "Free storage", value: String(format: "%.1f GB", GameHubPerformance.freeStorageGB)))
+            if perfChanged {
+                list.append(.info("perf-restart", "Applies after GameHub restarts", value: "Close it from the app switcher"))
+            }
+            list += [.header("JIT & System"),
                 .nav("jit-setup", "JIT setup", detail: "JIT method, StikDebug, pairing and LocalDevVPN.", action: { sheet = .jit }),
                 .info("memory", "Memory+", value: memoryPlus ? "Available" : "Unavailable"),
                 .toggle("logging", "Extended logging", detail: "Heavy diagnostics. Leave off unless a run needs explaining.", $input.diagnostics),
@@ -658,5 +678,13 @@ struct GameHubToggle: View {
         .frame(width: 39, height: 20)
         .animation(.spring(response: 0.25, dampingFraction: 0.8), value: on)
         .accessibilityRepresentation { Toggle("", isOn: .constant(on)) }
+    }
+}
+
+/// Cycling a value through a list (a row's next choice).
+enum GameHubLibraryNext {
+    static func next<T: Equatable>(_ value: T, in list: [T]) -> T {
+        guard let i = list.firstIndex(of: value) else { return list.first ?? value }
+        return list[(i + 1) % list.count]
     }
 }

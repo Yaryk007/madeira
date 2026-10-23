@@ -305,6 +305,7 @@ struct GameHubHomeView: View {
         .onReceive(LibraryController.shared.commands) { handle($0) }
         .onAppear {
             EndedSessionSurface.install(); EndedSessionSurface.hide(reason: "library-appeared")
+            GameHubPerformance.applyRecommendedIfNeeded()
             onboarding.presentIfNeeded()
             steamGames.refresh()
             rebuildGames()

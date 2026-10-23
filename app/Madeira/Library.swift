@@ -468,7 +468,8 @@ struct LibraryEntry: Codable, Identifiable {
 
     /// The vsync mode to apply: a saved 30 or 40 FPS limit runs as 60 when it is
     /// not offered (DXMT without that cap would present uncapped).
-    var effectiveFPSMode: Int32 { ProMotionIntent.supportedMode(fpsMode) }
+    /// GameHub's performance mode turns the default 60 FPS into the display's maximum (Overclock) or 30 (Lite).
+    var effectiveFPSMode: Int32 { ProMotionIntent.supportedMode(GameHubPerformance.fps(fpsMode)) }
 
     func validate() throws {
         let size = resolution.split(separator: "x").compactMap { Int($0) }

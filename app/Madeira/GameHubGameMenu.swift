@@ -212,7 +212,9 @@ struct GameHubGameMenu: View {
             return list
         case .display:
             var list: [GameHubRow] = [.header("Frame rate"),
-                .nav("fps", "FPS limit", value: Self.fpsModes.first { $0.0 == model.fpsMode }?.1 ?? "60 FPS") {
+                .nav("fps", "FPS limit", detail: model.fpsMode == 1 && GameHubPerformance.mode != .balanced
+                        ? "\(GameHubPerformance.mode.title) mode runs this game at \(GameHubPerformance.mode == .overclock ? "the display maximum" : "30 FPS")." : nil,
+                     value: Self.fpsModes.first { $0.0 == model.fpsMode }?.1 ?? "60 FPS") {
                     model.setFPS(Self.next(model.fpsMode, in: Self.fpsModes.map(\.0)))
                 }]
             if sessionTools {
@@ -241,7 +243,10 @@ struct GameHubGameMenu: View {
                 .check("p-look", "Mouse-look", detail: "Relative movement for 3D cameras.", mode == 2, { input.touchMode = false; input.relative = true }),
                 .slider("p-sens", "Sensitivity", sensitivity, 0.1...8, step: 0.1, format: "%.1f")]
         case .system:
-            var list: [GameHubRow] = [.header("CPU"),
+            var list: [GameHubRow] = [.header("Performance"),
+                .info("perf-mode", "Performance mode", value: GameHubPerformance.mode.title),
+                .info("perf-paging", "Paging file", value: GameHubPerformance.pagingLabel(GameHubPerformance.paging)),
+                .header("CPU"),
                 .toggle("eco", "Eco mode", detail: "The game's threads on the efficiency cores: cooler and slower. For loading screens.",
                         Binding(get: { eco }, set: { on in eco = on; madeira_set_eco(on ? 1 : 0) }))]
             if sessionTools && sessionDiagnostics {
