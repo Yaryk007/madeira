@@ -189,10 +189,12 @@ enum GameRecommendations {
     /// that keep that session alive), plus the line GTA V Enhanced's list outside
     /// Steam starts with: the [ec-hook] reporter off.
     static let rdr2Other = GameRecommendation(
-        id: "rdr2-other", title: "Red Dead Redemption 2 (outside Steam)", version: 1,
+        id: "rdr2-other", title: "Red Dead Redemption 2 (outside Steam)", version: 2,
         config: """
         # Madeira's recommended settings for Red Dead Redemption 2 outside Steam (Rockstar Games Launcher or another store).
         # Reset to Recommended, at the bottom of the game's settings, brings them back.
+        # GameHub: the JIT pool this list was tested with (GameHub defaults direct games to 640 MB).
+        pool = 896
         d3d12-caps-log = 2
         d3d12-shader-pack = 1
         replay-split = 1
@@ -310,10 +312,12 @@ enum GameRecommendations {
     /// the same orphan-lock reaper mode as the Steam copy (its launcher and
     /// Social Club too).
     static let gta5EnhancedOther = GameRecommendation(
-        id: "gta5e-other", title: "GTA V Enhanced (outside Steam)", version: 2,
+        id: "gta5e-other", title: "GTA V Enhanced (outside Steam)", version: 3,
         config: """
         # Madeira's recommended settings for GTA V Enhanced outside Steam (Rockstar Games Launcher or another store).
         # Reset to Recommended, at the bottom of the game's settings, brings them back.
+        # GameHub: the JIT pool this list was tested with (GameHub defaults direct games to 640 MB).
+        pool = 896
         vram-mb = 4096
         d3d12-core-dll = 1
         d3d12-typed-uav-load = 1
@@ -353,10 +357,12 @@ enum GameRecommendations {
     /// create froze it in a cutscene, 15:39). With the game's own graphics at their
     /// lowest it stays under the memory limit on an iPhone 17 Pro Max.
     static let ghostOfTsushima = GameRecommendation(
-        id: "ghost-of-tsushima", title: "Ghost of Tsushima", version: 3,
+        id: "ghost-of-tsushima", title: "Ghost of Tsushima", version: 4,
         config: """
         # Madeira's recommended settings for Ghost of Tsushima.
         # Reset to Recommended, at the bottom of the game's settings, brings them back.
+        # GameHub: the JIT pool this list was tested with (GameHub defaults direct games to 640 MB).
+        pool = 896
         dxil-tess = 0
         sampler-reduction = 3
         ind-count = 6000
@@ -378,10 +384,12 @@ enum GameRecommendations {
 
     /// God of War (2018) (build 335: 1080p, DualSense input).
     static let godOfWar = GameRecommendation(
-        id: "god-of-war", title: "God of War", version: 1,
+        id: "god-of-war", title: "God of War", version: 2,
         config: """
         # Madeira's recommended settings for God of War.
         # Reset to Recommended, at the bottom of the game's settings, brings them back.
+        # GameHub: the JIT pool this list was tested with (GameHub defaults direct games to 640 MB).
+        pool = 896
         dxmt = d3d11.mipClampBC=2
         swap-mb = 6144
         swap-min-kb = 1024
@@ -487,10 +495,12 @@ enum GameRecommendations {
     /// one call instead of realpath, which kept it busy on a performance core
     /// in the menu (MADEIRA_SRV_FGETPATH).
     static let horizonZeroDawn = GameRecommendation(
-        id: "horizon-zero-dawn", title: "Horizon Zero Dawn", version: 16,
+        id: "horizon-zero-dawn", title: "Horizon Zero Dawn", version: 17,
         config: """
         # Madeira's recommended settings for Horizon Zero Dawn.
         # Reset to Recommended, at the bottom of the game's settings, brings them back.
+        # GameHub: the JIT pool this list was tested with (GameHub defaults direct games to 640 MB).
+        pool = 896
         dxbc-register-spaces = 1
         msc-unbounded-retry = 1
         msc-fail-memo = 1

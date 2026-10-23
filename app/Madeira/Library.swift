@@ -425,6 +425,8 @@ struct LibraryEntry: Codable, Identifiable {
     /// With startServices the target is the services batch, which carries the
     /// arguments itself. The exe is launchWindowsPath: "The game"'s program for
     /// a Steam game started as its own program.
+    /// GameHub's session host starts the same program (GameSessionHost).
+    var launchCommandForHost: (exe: String, args: String) { launchCommand }
     private var launchCommand: (exe: String, args: String) {
         func quoted(_ s: String) -> String { "\"\(s)\"" }
         var path = launchWindowsPath
@@ -696,6 +698,9 @@ final class LibraryModel: ObservableObject {
     var blocksGameplayTouch: Bool { current != nil && (menu || launching) }
     private var timer: Timer?
     private var sawProcess = false
+    /// GameHub: the session host's job this game runs as; its exit ends the game
+    /// while the session stays (GameSessionHost.swift).
+    var hostToken: Int?
     // Why a session ended by itself (not Quit): the program the app launched
     // exited with a Windows error (wine_crash_exit_status, WineProcessBridge.m).
     // MADEIRA_EXIT_REPORT=0 returns to the library without a message.
@@ -1111,10 +1116,21 @@ final class LibraryModel: ObservableObject {
                 showGameView(reason: "surface")
             } else if Date().timeIntervalSince(launchStarted) > 30 { launchSlow = true }
         }
+        if let token = hostToken {
+            // A hosted game ends when the host reports its exit; the session runs on.
+            let result = GameSessionHost.result(of: token)
+            if result.finished {
+                if result.code == nil, launching { error = "The game could not be started." }
+                LogStore.shared.log("[session-host] job \(token) ended (exit \(result.code.map { String(format: "0x%X", $0) } ?? "start failed"))")
+                hostToken = nil
+                finish(hosted: true)
+                return
+            }
+        }
         if wine_process_is_running() != 0 {
             sawProcess = true
             if sessionMessage == "Starting…" { sessionMessage = "" }
-        } else if sawProcess && wineserver_is_running() == 0 { finish() }
+        } else if sawProcess && wineserver_is_running() == 0 { hostToken = nil; finish() }
         // The first frame gives Aspect and Fill height the drawable's shape.
         if current != nil, !laidOutAfterFirstPresent, madeira_get_present_count() != MetalBackedView.presentCountAtLaunch {
             laidOutAfterFirstPresent = true
@@ -1217,8 +1233,9 @@ final class LibraryModel: ObservableObject {
             save(entry)
         }
     }
-    private func finish() {
-        if sawProcess, let report = exitReport() { error = report }
+    private func finish(hosted: Bool = false) {
+        // A hosted game's exit is reported by the host; Wine's own exit status is the session's.
+        if !hosted, sawProcess, let report = exitReport() { error = report }
         timer?.invalidate(); timer = nil
         saveCurrentProfile()
         controllerMode = nil

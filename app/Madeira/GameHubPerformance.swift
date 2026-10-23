@@ -153,6 +153,18 @@ enum GameHubPerformance {
         }
     }
 
+    // MARK: JIT pool
+
+    /// The JIT pool when neither madeira.cfg nor the game sets one. StikDebug's
+    /// blessing writes the whole pool, so all of it counts toward iOS's limit from
+    /// the start, used or not. A direct game used about 190 MB of Madeira's 896 MB
+    /// (its own measurement), so under 11 GB a direct game gets 640 MB, 256 MB less
+    /// footprint; Madeira Dock (Valve's client, Chromium) keeps 896 MB, and games
+    /// tested at 896 MB carry pool = 896 in their recommended lists.
+    static func standardPool(dock: Bool) -> Int {
+        dock || memoryGB >= 11 ? 896 : 640
+    }
+
     // MARK: Paging
 
     /// Paging's sizes in MB (the swap tier's file); 0 is off.

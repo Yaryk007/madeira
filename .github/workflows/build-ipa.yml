@@ -674,6 +674,12 @@ jobs:
         continue-on-error: true
         run: bash build/madeira-dock/build.sh
 
+      # GameHub: the session host that lets several games run in one app run.
+      # Without it the app keeps one game per run, so a failure here does not stop the build.
+      - name: Build GameHub session host
+        continue-on-error: true
+        run: bash build/gamehub-host/build.sh
+
       - name: i386 farm revision
         id: i386rev
         shell: bash

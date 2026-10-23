@@ -152,6 +152,7 @@
 		A10009D5 /* EpicStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20009D5 /* EpicStore.swift */; };
 		A10009D6 /* EpicInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20009D6 /* EpicInstaller.swift */; };
 		A10009D7 /* GameHubEpic.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20009D7 /* GameHubEpic.swift */; };
+		A10009D8 /* GameSessionHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20009D8 /* GameSessionHost.swift */; };
 		A10009C5 /* GameArtwork.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20009C5 /* GameArtwork.swift */; };
 		A1000244 /* Winios/WiniosGamepad.c in Sources */ = {isa = PBXBuildFile; fileRef = A2000244 /* Winios/WiniosGamepad.c */; };
 		A1000203 /* HardwareInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000203 /* HardwareInput.swift */; };
@@ -356,6 +357,7 @@
 		A20009D5 /* EpicStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpicStore.swift; sourceTree = "<group>"; };
 		A20009D6 /* EpicInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EpicInstaller.swift; sourceTree = "<group>"; };
 		A20009D7 /* GameHubEpic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameHubEpic.swift; sourceTree = "<group>"; };
+		A20009D8 /* GameSessionHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameSessionHost.swift; sourceTree = "<group>"; };
 		A20009C5 /* GameArtwork.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameArtwork.swift; sourceTree = "<group>"; };
 		A2000244 /* Winios/WiniosGamepad.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = "Winios/WiniosGamepad.c"; sourceTree = "<group>"; };
 		A2000203 /* HardwareInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HardwareInput.swift; sourceTree = "<group>"; };
@@ -504,6 +506,7 @@
 				A20009D5 /* EpicStore.swift */,
 				A20009D6 /* EpicInstaller.swift */,
 				A20009D7 /* GameHubEpic.swift */,
+				A20009D8 /* GameSessionHost.swift */,
 				A20009C5 /* GameArtwork.swift */,
 				A2000002 /* ContentView.swift */,
 				A2000003 /* LogStore.swift */,
@@ -849,6 +852,7 @@
 				A10009D5 /* EpicStore.swift in Sources */,
 				A10009D6 /* EpicInstaller.swift in Sources */,
 				A10009D7 /* GameHubEpic.swift in Sources */,
+				A10009D8 /* GameSessionHost.swift in Sources */,
 				A10009C5 /* GameArtwork.swift in Sources */,
 				A1000002 /* ContentView.swift in Sources */,
 				A1000003 /* LogStore.swift in Sources */,

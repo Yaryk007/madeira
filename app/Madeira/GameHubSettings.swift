@@ -98,6 +98,7 @@ struct GameHubSettingsPage: View {
     @State private var perfMode = GameHubPerformance.mode
     @State private var paging = GameHubPerformance.paging
     @State private var perfChanged = false
+    @AppStorage(GameSessionHost.flagKey) private var multiSession = true
 
     var body: some View {
         // GameHub's Settings (measured): a 243 pt category column 54 pt from the
@@ -389,6 +390,11 @@ struct GameHubSettingsPage: View {
                 list.append(.check("perf-\(mode.rawValue)", mode.title, detail: mode.detail, perfMode == mode,
                                    { GameHubPerformance.apply(mode); perfMode = mode; perfChanged = true }))
             }
+            list.append(.header("Sessions"))
+            list.append(.toggle("multi-session", "Several games per session",
+                                detail: GameSessionHost.bundled
+                                    ? "Start another game after one ends without restarting GameHub. Off: one game per app run, as Madeira."
+                                    : "Not in this build.", $multiSession))
             list.append(.header("Paging"))
             list.append(.nav("paging", "Paging file", detail: "Moves game memory to storage when memory runs short, so bigger games fit. Some speed cost; uses free storage.",
                              value: GameHubPerformance.pagingLabel(paging)) {

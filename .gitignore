@@ -170,3 +170,4 @@ app/Madeira/arm64ec-windows/dock-notices.txt
 # faultrep.dll: build/faultrep/build.sh (its install goes into the tracked farm)
 build/faultrep/out/
 app/Madeira/Assets.xcassets/GameHub/
+app/Madeira/arm64ec-windows/gamehubhost.exe

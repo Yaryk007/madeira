@@ -2577,6 +2577,12 @@ struct ContentView: View {
             LogStore.shared.log("[steam-start] app=\(appID) direct source=\(entry.steamProgramSource ?? "-") " +
                                 "args=\(entry.launchArguments.isEmpty ? 0 : 1) folder=\(entry.steamWorkingWindowsPath == nil ? "program" : "steam")")
         }
+        // GameHub: a session with the session host is still running, so this game joins it
+        // as the host's next job instead of a new Wine session (GameSessionHost.swift).
+        if library.current == nil, GameSessionHost.alive, GameSessionHost.canHost(entry) {
+            startHostedEntry(entry)
+            return
+        }
         guard wine_process_is_running() == 0, wineserver_is_running() == 0, library.current == nil else {
             library.error = "A session is already running."; return
         }
@@ -2614,8 +2620,27 @@ struct ContentView: View {
         let program = entry.desktop == true ? "explorer.exe"
             : entry.launchWindowsPath.split(separator: "\\").last.map(String.init) ?? entry.launchWindowsPath
         LogStore.shared.startSessionLog(program: program)
+        // GameHub: the session starts with the host when it can, so later games join it.
+        let hostToken = GameSessionHost.canHost(entry) ? GameSessionHost.prepareFirstLaunch(entry) : nil
         library.begin(entry)
+        library.hostToken = hostToken
         runWineFullSequence(profile: entry)
+    }
+
+    /// GameHub: a game joining the running session. Its own options apply as at a
+    /// first launch, except what Wine reads once per run (the JIT pool, paging, the
+    /// controller type, the monitor's size), which keeps the first game's values.
+    private func startHostedEntry(_ entry: LibraryEntry) {
+        do { _ = try LibraryModel.executable(entry.launchRelativePath); try entry.validate() }
+        catch { library.error = error.localizedDescription; return }
+        guard entry.launchArguments.utf8.count < 4096 else { library.error = "The launch arguments are too long."; return }
+        BCDLaunch.applyLibrary(entry)
+        entry.applyEnvironment()
+        Self.reassertBCDSwitches(entry)
+        let token = GameSessionHost.submit(entry)
+        library.begin(entry)
+        library.hostToken = token
+        LogStore.shared.log("[session-host] \(entry.title) joins the running session")
     }
 
     /// madeira-bcd: LibraryPrefs' AVX, NVIDIA and Wine C++ runtime switches for a
@@ -2825,10 +2850,14 @@ struct ContentView: View {
             } else {
                 unsetenv("MADEIRA_CAGE_RELEASE")
             }
-            var poolSizeMB = DockPerformancePolicy.sessionPoolMB(standard: 896, dock: dockLaunch.dock, compact: dockLaunch.compact)
+            // GameHub: a direct game's standard pool is device-sized (GameHubPerformance.standardPool):
+            // the pool is dirty from birth, so its size is what counts toward iOS's limit.
+            var poolSizeMB = DockPerformancePolicy.sessionPoolMB(standard: GameHubPerformance.standardPool(dock: dockLaunch.dock),
+                                                                 dock: dockLaunch.dock, compact: dockLaunch.compact)
             if poolSizeMB != 896 { logStore.log("[dock-pool] compact JIT pool \(poolSizeMB)MB for this Dock launch") }
             // madeira.cfg pool: the JIT pool size in MB (256 to 1152) for every launch; wins over the size above.
-            if let txt = MadeiraConfig.get("pool"),
+            // GameHub: a game's own pool line wins over madeira.cfg's (games tested at 896 MB keep it).
+            if let txt = MadeiraConfig.gameValue("pool") ?? MadeiraConfig.get("pool"),
                let mb = Int(txt.trimmingCharacters(in: .whitespacesAndNewlines)),
                mb >= 256, mb <= 1152 {
                 poolSizeMB = mb
