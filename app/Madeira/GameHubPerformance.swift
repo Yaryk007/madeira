@@ -23,7 +23,7 @@ enum PerformanceMode: String, CaseIterable, Identifiable {
     }
     var detail: String {
         switch self {
-        case .lite: return "For devices with 4 GB of memory or less: less memory, paging on, 30 FPS by default."
+        case .lite: return "For devices with 3 or 4 GB of memory (iPad 9th generation and similar): less memory, paging on, 30 FPS by default."
         case .balanced: return "GameHub's standard settings."
         case .overclock: return "Everything at full speed: no power saving, top refresh rate, a larger JIT pool. More heat, less battery."
         }
@@ -47,7 +47,7 @@ enum GameHubPerformance {
     }
 
     /// Every madeira.cfg key a mode can set.
-    static let keys = ["eco", "pool", "vram-mb", "swap-mb", "env.MADEIRA_PROMOTE", "env.MADEIRA_LEAN_DIAG",
+    static let keys = ["eco", "pool", "vram-mb", "swap-mb", "env.MADEIRA_SWAP_COVERAGE", "env.MADEIRA_PROMOTE", "env.MADEIRA_LEAN_DIAG",
                        "env.MADEIRA_SRV_DIRECT", "env.MADEIRA_ECO_NATIVE", "env.MADEIRA_DOCK_COMPACT_POOL"]
 
     /// A mode's values; nil removes the key (its default).
@@ -56,14 +56,24 @@ enum GameHubPerformance {
         case .balanced:
             return [:]
         case .overclock:
-            // 1152 MB of JIT pool (the most) where there is room for it; 1024 under 6 GB.
-            return ["eco": nil, "pool": memoryGB >= 5.5 ? "1152" : "1024", "env.MADEIRA_PROMOTE": "1", "env.MADEIRA_LEAN_DIAG": "1",
+            // 1152 MB of JIT pool (the most) where there is room for it; 1024 under 6 GB;
+            // on 3 GB devices Lite's memory sizes stay and only the speed settings change.
+            return ["eco": nil, "pool": memoryGB >= 5.5 ? "1152" : memoryGB >= 3.5 ? "1024" : "512",
+                    "vram-mb": memoryGB < 3.5 ? "512" : nil, "env.MADEIRA_PROMOTE": "1", "env.MADEIRA_LEAN_DIAG": "1",
                     "env.MADEIRA_SRV_DIRECT": "1", "env.MADEIRA_ECO_NATIVE": nil, "env.MADEIRA_DOCK_COMPACT_POOL": nil,
                     // The larger pool and full-speed games use more memory: paging backs it
                     // on devices under 8 GB unless paging is already set larger.
-                    "swap-mb": memoryGB < 7.5 ? String(max(2048, current("swap-mb"))) : nil]
+                    "swap-mb": memoryGB < 7.5 ? String(max(memoryGB < 3.5 ? 3072 : 2048, current("swap-mb"))) : nil,
+                    "env.MADEIRA_SWAP_COVERAGE": memoryGB < 3.5 ? "blocks" : nil]
         case .lite:
-            return ["eco": nil, "pool": "640", "vram-mb": "1024", "swap-mb": String(max(2048, current("swap-mb"))),
+            // 3 GB devices (iPad 9th generation, iPhone 8 Plus/X class, about 2.8 GB readable)
+            // get the smallest pool that still fits large games, 512 MB of video memory
+            // and a 3 GB paging file that also takes 1 MB+ allocations; 4 GB devices a
+            // little more of each.
+            let tiny = memoryGB < 3.5
+            return ["eco": nil, "pool": tiny ? "512" : "640", "vram-mb": tiny ? "512" : "1024",
+                    "swap-mb": String(max(tiny ? 3072 : 2048, current("swap-mb"))),
+                    "env.MADEIRA_SWAP_COVERAGE": tiny ? "blocks" : nil,
                     "env.MADEIRA_PROMOTE": nil, "env.MADEIRA_LEAN_DIAG": "1", "env.MADEIRA_SRV_DIRECT": nil,
                     "env.MADEIRA_ECO_NATIVE": "1", "env.MADEIRA_DOCK_COMPACT_POOL": "1"]
         }
