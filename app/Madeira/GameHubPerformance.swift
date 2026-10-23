@@ -5,7 +5,7 @@ import Foundation
 
 /// How hard GameHub drives the device. iOS gives apps no clock control, so
 /// Overclock means every power saving off: guest threads at full priority,
-/// the display held at its top refresh rate, a larger JIT pool, lean runtime
+/// the display held at its top refresh rate (a larger JIT pool on 12 GB devices), lean runtime
 /// diagnostics and faster Wine-server requests, and games on the default
 /// 60 FPS limit run at the display's maximum. It runs hotter and drains the
 /// battery faster. Lite is for devices with little memory: a smaller JIT pool
@@ -25,7 +25,7 @@ enum PerformanceMode: String, CaseIterable, Identifiable {
         switch self {
         case .lite: return "For devices with 3 or 4 GB of memory (iPad 9th generation and similar): less memory, paging on, 30 FPS by default."
         case .balanced: return "GameHub's standard settings."
-        case .overclock: return "Everything at full speed: no power saving, top refresh rate, a larger JIT pool. More heat, less battery."
+        case .overclock: return "Everything at full speed: no power saving, top refresh rate, lean background work, paging on. More heat, less battery."
         }
     }
 }
@@ -56,14 +56,17 @@ enum GameHubPerformance {
         case .balanced:
             return [:]
         case .overclock:
-            // 1152 MB of JIT pool (the most) where there is room for it; 1024 under 6 GB;
-            // on 3 GB devices Lite's memory sizes stay and only the speed settings change.
-            return ["eco": nil, "pool": memoryGB >= 5.5 ? "1152" : memoryGB >= 3.5 ? "1024" : "512",
+            // A larger JIT pool adds room for translated code, not speed, and it costs
+            // memory heavy games need: on an 8 GB iPhone the extra 256 MB took Stray past
+            // iOS's 5.75 GB limit. So only devices with 12 GB or more get 1152 MB; the
+            // rest keep the standard pool (3 GB devices Lite's 512 MB), and Overclock
+            // there is the speed settings alone.
+            return ["eco": nil, "pool": memoryGB >= 11 ? "1152" : memoryGB < 3.5 ? "512" : nil,
                     "vram-mb": memoryGB < 3.5 ? "512" : nil, "env.MADEIRA_PROMOTE": "1", "env.MADEIRA_LEAN_DIAG": "1",
                     "env.MADEIRA_SRV_DIRECT": "1", "env.MADEIRA_ECO_NATIVE": nil, "env.MADEIRA_DOCK_COMPACT_POOL": nil,
-                    // The larger pool and full-speed games use more memory: paging backs it
-                    // on devices under 8 GB unless paging is already set larger.
-                    "swap-mb": memoryGB < 7.5 ? String(max(memoryGB < 3.5 ? 3072 : 2048, current("swap-mb"))) : nil,
+                    // Full-speed games use more memory: paging backs it under 11 GB (8 GB
+                    // iPhones read as about 7.5 GB) unless paging is already set larger.
+                    "swap-mb": memoryGB < 11 ? String(max(memoryGB < 3.5 ? 3072 : 2048, current("swap-mb"))) : nil,
                     "env.MADEIRA_SWAP_COVERAGE": memoryGB < 3.5 ? "blocks" : nil]
         case .lite:
             // 3 GB devices (iPad 9th generation, iPhone 8 Plus/X class, about 2.8 GB readable)
@@ -105,7 +108,12 @@ enum GameHubPerformance {
 
     /// First start on a low-memory device: Lite is written once, as if chosen.
     static func applyRecommendedIfNeeded() {
-        guard UserDefaults.standard.string(forKey: modeKey) == nil else { return }
+        // A mode chosen in an earlier build is written again with this build's values
+        // (Overclock no longer enlarges the pool on 8 GB devices).
+        if let raw = UserDefaults.standard.string(forKey: modeKey), let chosen = PerformanceMode(rawValue: raw) {
+            if chosen != .balanced { for (key, value) in values(chosen) { _ = MadeiraConfig.set(key, value) } }
+            return
+        }
         if lowMemory {
             UserDefaults.standard.set(PerformanceMode.balanced.rawValue, forKey: modeKey)
             apply(.lite)
