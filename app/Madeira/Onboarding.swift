@@ -212,28 +212,42 @@ struct OnboardingView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    if let position = OnboardingRules.position(of: model.step, in: model.steps), position.count > 1 {
-                        Text("Step \(position.number) of \(position.count)")
-                            .font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
-                    }
-                    switch model.step {
-                    case .welcome: welcome
-                    case .localDevVPN: localDevVPNPage
-                    case .jit: jitPage
-                    case .signIn: signInPage
-                    case .dockClient: dockClientPage
-                    case .wineMono: wineMonoPage
-                    case .done: donePage
+            ZStack {
+                // GameHub's first screens: deep navy, a dotted glow, game art fading in at the bottom.
+                GameHubSetupBackground()
+                ScrollView {
+                    if model.step == .welcome {
+                        welcome.padding(.horizontal, 24).padding(.vertical, 20).frame(maxWidth: .infinity)
+                    } else {
+                        VStack(alignment: .leading, spacing: 20) {
+                            if let position = OnboardingRules.position(of: model.step, in: model.steps), position.count > 1 {
+                                GameHubStepDots(number: position.number, count: position.count)
+                            }
+                            switch model.step {
+                            case .welcome: EmptyView()
+                            case .localDevVPN: localDevVPNPage
+                            case .jit: jitPage
+                            case .signIn: signInPage
+                            case .dockClient: dockClientPage
+                            case .wineMono: wineMonoPage
+                            case .done: donePage
+                            }
+                        }
+                        .padding(24)
+                        .background(GameHubFrost(cornerRadius: 24, tint: Color(red: 0.05, green: 0.09, blue: 0.19).opacity(0.62)))
+                        .frame(maxWidth: 580, alignment: .leading).frame(maxWidth: .infinity)
+                        .padding(.horizontal, 20).padding(.vertical, 22)
                     }
                 }
-                .padding(24).frame(maxWidth: 560, alignment: .leading).frame(maxWidth: .infinity)
+                .scrollIndicators(.hidden)
                 .animation(.default, value: jitPath)
                 .animation(.default, value: pairing.phase)
             }
-            .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+            .toolbar(.hidden, for: .navigationBar)
         }
+        .environment(\.colorScheme, .dark)
+        .foregroundStyle(.white)
+        .tint(Color(red: 0.35, green: 0.7, blue: 1))
         .interactiveDismissDisabled()
         .sheet(isPresented: $showSignIn) { SteamSignInView() }
         .fileImporter(isPresented: $importingPairingFile,
@@ -264,19 +278,33 @@ struct OnboardingView: View {
 
     private func header(_ title: String, symbol: String) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Image(systemName: symbol).font(.system(size: 44)).foregroundStyle(.tint).accessibilityHidden(true)
-            Text(title).font(.title.bold()).accessibilityAddTraits(.isHeader)
+            Image(systemName: symbol).font(.system(size: 24, weight: .medium))
+                .frame(width: 52, height: 52)
+                .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.12)))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.white.opacity(0.12)))
+                .accessibilityHidden(true)
+            Text(title).font(.system(size: 26, weight: .bold)).accessibilityAddTraits(.isHeader)
         }
     }
 
+    /// GameHub's glossy blue button.
     private func primary(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Label(title, systemImage: symbol).fontWeight(.semibold).frame(maxWidth: .infinity, minHeight: 36)
-        }.buttonStyle(.borderedProminent).controlSize(.large)
+            HStack(spacing: 8) {
+                Text(title).font(.system(size: 18, weight: .semibold))
+                Image(systemName: symbol).font(.system(size: 16, weight: .semibold))
+            }
+            .frame(maxWidth: .infinity).frame(height: 48)
+            .background(GameHubGlossyBlue(cornerRadius: 16))
+        }
+        .buttonStyle(GameHubPressStyle())
     }
 
     private func secondary(_ title: String, action: @escaping () -> Void) -> some View {
-        Button(title, action: action).frame(maxWidth: .infinity, minHeight: 44)
+        Button(action: action) {
+            Text(title).font(.system(size: 16)).foregroundStyle(Color.white.opacity(0.7)).frame(maxWidth: .infinity, minHeight: 44)
+        }
+        .buttonStyle(.plain)
     }
 
     private func point(_ number: Int, _ text: LocalizedStringKey, done: Bool = false) -> some View {
@@ -289,9 +317,9 @@ struct OnboardingView: View {
                 }
             }
             .frame(width: 26, height: 26)
-            .background((done ? Color.green : Color.accentColor).opacity(0.15), in: Circle()).accessibilityHidden(true)
+            .background((done ? Color.green : Color.white).opacity(done ? 0.18 : 0.12), in: Circle()).accessibilityHidden(true)
             Text(text).fixedSize(horizontal: false, vertical: true)
-                .foregroundStyle(done ? .secondary : .primary)
+                .foregroundStyle(done ? Color.white.opacity(0.5) : Color.white)
         }
         .accessibilityElement(children: .combine)
         .accessibilityValue(done ? Text("Done") : Text(""))
@@ -299,30 +327,49 @@ struct OnboardingView: View {
 
     // MARK: Pages
 
+    /// GameHub's "Meet GameHub": the mark, the name, three frosted cards and Get Started.
     private var welcome: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Image(systemName: "gamecontroller.fill").font(.system(size: 52)).foregroundStyle(.tint).accessibilityHidden(true)
-            if model.since > 0 {
-                // After an update: only the pages added since this device last ran setup.
-                Text("New in Madeira").font(.largeTitle.bold()).accessibilityAddTraits(.isHeader)
-                Text("Since you last ran setup, Madeira has something new to set up:").font(.title3)
-            } else {
-                Text("Welcome to Madeira").font(.largeTitle.bold()).accessibilityAddTraits(.isHeader)
-                Text("Madeira runs Windows games on your \(UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone").")
-                    .font(.title3)
-                Text("A few optional steps get you ready:").foregroundStyle(.secondary)
-            }
+        VStack(spacing: 0) {
+            GameHubLogo(kind: .mark).frame(width: 82, height: 50).padding(.top, 4)
+            Text(model.since > 0 ? "New in GameHub" : "Meet GameHub")
+                .font(.system(size: 34, weight: .bold))
+                .foregroundStyle(LinearGradient(colors: [.white, Color(red: 0.72, green: 0.84, blue: 1)], startPoint: .top, endPoint: .bottom))
+                .padding(.top, 14).accessibilityAddTraits(.isHeader)
+            Text(model.since > 0 ? "Something new to set up" : "PC gaming on \(device)")
+                .font(.system(size: 20)).foregroundStyle(Color.white.opacity(0.9)).padding(.top, 8)
             let pages = model.steps
-            let offered: [LocalizedStringKey] =
-                (pages.contains(.localDevVPN) ? ["Install LocalDevVPN, which Madeira enables JIT through."] : [])
-                + (pages.contains(.jit) ? ["Choose how Madeira enables JIT."] : [])
-                + (pages.contains(.signIn) ? ["Sign in to Steam in Madeira."] : [])
-                + (pages.contains(.dockClient) ? ["Download Valve's Steam client components for Madeira Dock."] : [])
-                + (pages.contains(.wineMono) ? ["Download Wine Mono, for games built on .NET Framework."] : [])
-            ForEach(offered.indices, id: \.self) { index in point(index + 1, offered[index]) }
-            primary("Get started", symbol: "arrow.right") { model.next() }.padding(.top, 8)
-            secondary("Skip setup") { model.skip() }
+            let cards: [(String, String)] = [
+                ("gamecontroller.fill", pages.contains(.jit) || pages.contains(.localDevVPN) ? "Windows games,\nwith JIT" : "Windows games,\non your \(device)"),
+                ("arrow.triangle.2.circlepath", pages.contains(.signIn) || pages.contains(.dockClient) ? "Steam library,\ncross-save" : "Steam library,\ncloud saves"),
+                ("keyboard.fill", "Pro key layouts,\none-tap apply"),
+            ]
+            HStack(spacing: 16) {
+                ForEach(cards, id: \.1) { card in
+                    VStack(alignment: .leading, spacing: 10) {
+                        Image(systemName: card.0).font(.system(size: 24, weight: .semibold))
+                            .foregroundStyle(LinearGradient(colors: [Color(red: 0.55, green: 0.85, blue: 1), Color(red: 0.25, green: 0.5, blue: 1)],
+                                                            startPoint: .top, endPoint: .bottom))
+                        Text(card.1).font(.system(size: 16)).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading).frame(height: 86).padding(.horizontal, 16)
+                    .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color(red: 0.4, green: 0.6, blue: 1).opacity(0.1)))
+                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color(red: 0.5, green: 0.7, blue: 1).opacity(0.28)))
+                }
+            }
+            .frame(maxWidth: 660).padding(.top, 26)
+            Button { model.next() } label: {
+                HStack(spacing: 8) {
+                    Text("Get Started").font(.system(size: 19, weight: .medium))
+                    Image(systemName: "arrow.right").font(.system(size: 16, weight: .semibold))
+                }
+                .frame(width: 356, height: 46)
+                .background(GameHubGlossyBlue(cornerRadius: 16))
+            }
+            .buttonStyle(GameHubPressStyle()).padding(.top, 26)
+            Button("Skip setup") { model.skip() }
+                .font(.system(size: 14)).foregroundStyle(Color.white.opacity(0.55)).padding(.top, 8)
         }
+        .frame(maxWidth: .infinity)
     }
 
     /// LocalDevVPN first, offered only when it was missing: every JIT way reaches this
@@ -331,7 +378,7 @@ struct OnboardingView: View {
     private var localDevVPNPage: some View {
         VStack(alignment: .leading, spacing: 18) {
             header("Install LocalDevVPN", symbol: "network")
-            Text("Madeira enables JIT through LocalDevVPN, a free app that gives Madeira a network path to this \(device). Install it from the App Store, then come back.")
+            Text("GameHub enables JIT through LocalDevVPN, a free app that gives GameHub a network path to this \(device). Install it from the App Store, then come back.")
                 .fixedSize(horizontal: false, vertical: true)
             if localDevVPNInstalled {
                 Label("LocalDevVPN is installed", systemImage: "checkmark.circle.fill")
@@ -365,12 +412,12 @@ struct OnboardingView: View {
     private var jitChoices: some View {
         VStack(alignment: .leading, spacing: 18) {
             header("Set up JIT", symbol: "bolt.fill")
-            Text("JIT lets Madeira run Windows code. Choose how your \(device) gets it.")
+            Text("JIT lets GameHub run Windows code. Choose how your \(device) gets it.")
             VStack(spacing: 12) {
                 jitChoice("In-app", symbol: "iphone.radiowaves.left.and.right",
                           detail: !OnDevicePairing.isSupported ? "Needs iOS 27 or later."
                               : pairedOnDevice ? "Paired on this \(device)."
-                              : "Pair this \(device) with Madeira in Settings. No computer needed.",
+                              : "Pair this \(device) with GameHub in Settings. No computer needed.",
                           done: pairedOnDevice, enabled: OnDevicePairing.isSupported) { choose(.onDevice) }
                 jitChoice("In-app with pairing file", symbol: "doc.badge.plus",
                           detail: fileImported ? "Pairing file imported." : "Use a pairing file made on a computer.",
@@ -391,7 +438,7 @@ struct OnboardingView: View {
                       done: pairing.phase != .idle || pairedOnDevice)
                 point(2, "Open Settings › Privacy & Security › Developer Mode, scroll down and tap **Pair with \(OnDevicePairing.hostName)**.",
                       done: pairing.isShowingPin || pairedOnDevice)
-                point(3, "Enter the code Madeira shows. It's also in the banner at the top of the screen and in a notification.",
+                point(3, "Enter the code GameHub shows. It's also in the banner at the top of the screen and in a notification.",
                       done: pairedOnDevice)
             }
             if pairedOnDevice {
@@ -442,7 +489,7 @@ struct OnboardingView: View {
             VStack(alignment: .leading, spacing: 14) {
                 point(1, "Install [StikDebug](https://github.com/StikDebug/StikDebug/releases/latest) and import this \(device)'s pairing file into it.")
                 point(2, "Install and connect [LocalDevVPN](https://apps.apple.com/us/app/localdevvpn/id6755608044).")
-                point(3, "When you play, Madeira opens StikDebug to enable JIT, then comes back.")
+                point(3, "When you play, GameHub opens StikDebug to enable JIT, then comes back.")
             }
             primary("Use StikDebug", symbol: "arrow.right") {
                 jit.method = .stikDebug
@@ -461,7 +508,7 @@ struct OnboardingView: View {
 
     private var vpnNoteLabel: some View {
         Label {
-            Text("Before you play, connect [LocalDevVPN](https://apps.apple.com/us/app/localdevvpn/id6755608044). Madeira enables JIT through it.")
+            Text("Before you play, connect [LocalDevVPN](https://apps.apple.com/us/app/localdevvpn/id6755608044). GameHub enables JIT through it.")
         } icon: {
             Image(systemName: "network")
         }
@@ -575,8 +622,8 @@ struct OnboardingView: View {
         VStack(alignment: .leading, spacing: 18) {
             header("Sign in to Steam", symbol: "person.crop.circle.badge.checkmark")
             Text(model.steps.contains(.dockClient)
-                 ? "When you start a game with Madeira Dock, Madeira hands this sign-in to Valve's own Steam client, which signs in and checks your license."
-                 : "Madeira keeps a Steam sign-in so it can start your Steam games with your own account.")
+                 ? "When you start a game with Madeira Dock, GameHub hands this sign-in to Valve's own Steam client, which signs in and checks your license."
+                 : "GameHub keeps a Steam sign-in so it can start your Steam games with your own account.")
             VStack(alignment: .leading, spacing: 10) {
                 Label("Your password goes only to Steam and is never saved.", systemImage: "lock.fill")
                 Label("The sign-in is kept in this device's Keychain until you sign out.", systemImage: "iphone")
@@ -598,7 +645,7 @@ struct OnboardingView: View {
     private var dockClientPage: some View {
         VStack(alignment: .leading, spacing: 18) {
             header("Prepare Madeira Dock", symbol: "shippingbox")
-            Text("Madeira Dock starts your installed Steam games through Valve's own Steam client, without the Steam desktop window. It needs the client's components, which Madeira downloads from Valve.")
+            Text("Madeira Dock starts your installed Steam games through Valve's own Steam client, without the Steam desktop window. It needs the client's components, which GameHub downloads from Valve.")
             if dock.clientInstalled {
                 Label("Valve's client components are installed.", systemImage: "checkmark.circle.fill")
                     .font(.headline).foregroundStyle(.green)
@@ -628,13 +675,13 @@ struct OnboardingView: View {
     private var wineMonoPage: some View {
         VStack(alignment: .leading, spacing: 18) {
             header("Add .NET Framework support", symbol: "shippingbox.and.arrow.backward")
-            Text("Some Windows games are built on Microsoft's .NET Framework. Madeira runs them on Wine Mono, the Wine project's open-source .NET runtime.")
+            Text("Some Windows games are built on Microsoft's .NET Framework. GameHub runs them on Wine Mono, the Wine project's open-source .NET runtime.")
             if mono.installed {
                 Label("Wine Mono is installed.", systemImage: "checkmark.circle.fill")
                     .font(.headline).foregroundStyle(.green)
                 primary("Continue", symbol: "arrow.right") { model.next() }
             } else {
-                Text("Madeira downloads it from WineHQ: about 42 MB, about 130 MB once installed. Most games do not need it; you can also add it later in Settings.")
+                Text("GameHub downloads it from WineHQ: about 42 MB, about 130 MB once installed. Most games do not need it; you can also add it later in Settings.")
                     .font(.subheadline).foregroundStyle(.secondary)
                 switch mono.phase {
                 case .downloading(let f), .installing(let f):
@@ -663,7 +710,7 @@ struct OnboardingView: View {
                 Text("You can change the JIT method or import a pairing file from Settings › JIT.")
             }
             if model.steps.contains(.dockClient) {
-                Text("Settings › Steam › Madeira Dock lists the Steam games installed in Madeira's drive_c and starts them.")
+                Text("Settings › Steam › Madeira Dock lists the Steam games installed in GameHub's drive_c and starts them.")
             }
             if model.steps.contains(.wineMono) {
                 Text("Settings › .NET Framework downloads or removes Wine Mono.")
@@ -712,7 +759,7 @@ struct SteamSettingsSection: View {
         } header: {
             Text("Steam")
         } footer: {
-            Text("Madeira keeps a Steam sign-in token in this device's Keychain, for this device only. Signing out removes it.")
+            Text("GameHub keeps a Steam sign-in token in this device's Keychain, for this device only. Signing out removes it.")
         }
         .confirmationDialog("Sign out of Steam?", isPresented: $confirmSignOut, titleVisibility: .visible) {
             Button("Sign out", role: .destructive) { signIn.signOut() }
@@ -736,5 +783,71 @@ extension LibraryEntry {
         entry.id = dockSessionID; entry.desktop = true; entry.resolution = "\(width)x\(height)"
         entry.graphicsAPI = "Madeira Dock"
         return entry
+    }
+}
+
+/// GameHub's onboarding backdrop: deep navy lit from the top right, a dotted
+/// grid behind the mark, and game art fading up from the bottom edge.
+struct GameHubSetupBackground: View {
+    @ObservedObject private var store = GameHubStoreModel.shared
+    var body: some View {
+        ZStack {
+            LinearGradient(colors: [Color(red: 0.03, green: 0.06, blue: 0.14), Color(red: 0.04, green: 0.12, blue: 0.27)],
+                           startPoint: .bottomLeading, endPoint: .topTrailing)
+            RadialGradient(colors: [Color(red: 0.2, green: 0.35, blue: 0.65).opacity(0.45), .clear], center: .topTrailing, startRadius: 0, endRadius: 520)
+            Canvas { context, size in
+                let spacing: CGFloat = 16, center = CGPoint(x: size.width / 2, y: 90)
+                for x in stride(from: center.x - 150, through: center.x + 150, by: spacing) {
+                    for y in stride(from: CGFloat(30), through: 160, by: spacing) {
+                        let fade = max(0, 1 - hypot(x - center.x, y - center.y) / 170)
+                        context.fill(Path(ellipseIn: CGRect(x: x - 1.2, y: y - 1.2, width: 2.4, height: 2.4)),
+                                     with: .color(Color.white.opacity(0.18 * fade)))
+                    }
+                }
+            }
+            VStack {
+                Spacer()
+                HStack(spacing: 10) {
+                    ForEach(store.games.prefix(8)) { game in
+                        AsyncImage(url: game.image) { $0.resizable().aspectRatio(contentMode: .fill) } placeholder: { Color.white.opacity(0.04) }
+                            .frame(width: 150, height: 86).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                }
+                .opacity(0.22)
+                .mask(LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom))
+                .padding(.bottom, -20)
+            }
+        }
+        .ignoresSafeArea()
+        .task { await store.load() }
+    }
+}
+
+/// GameHub's glossy blue: a gradient, a lighter rim and a soft top highlight.
+struct GameHubGlossyBlue: View {
+    var cornerRadius: CGFloat = 16
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        shape.fill(LinearGradient(colors: [Color(red: 0.15, green: 0.6, blue: 0.92), Color(red: 0.03, green: 0.42, blue: 0.75)],
+                                  startPoint: .top, endPoint: .bottom))
+            .overlay(shape.fill(LinearGradient(colors: [Color.white.opacity(0.22), .clear], startPoint: .top, endPoint: .center)))
+            .overlay(shape.stroke(Color(red: 0.55, green: 0.82, blue: 1).opacity(0.7), lineWidth: 1))
+            .shadow(color: Color(red: 0.1, green: 0.5, blue: 0.9).opacity(0.35), radius: 10, y: 3)
+    }
+}
+
+/// Setup's progress: a dot per step, the current one a short bar.
+struct GameHubStepDots: View {
+    let number: Int
+    let count: Int
+    var body: some View {
+        HStack(spacing: 6) {
+            ForEach(1...max(1, count), id: \.self) { i in
+                Capsule().fill(i == number ? Color.white : Color.white.opacity(0.25))
+                    .frame(width: i == number ? 18 : 6, height: 6)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Step \(number) of \(count)")
     }
 }

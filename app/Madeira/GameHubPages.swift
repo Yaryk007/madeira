@@ -158,6 +158,9 @@ struct GameHubFullPage<Content: View>: View {
         var genres: [String] = []
     }
     @Published private(set) var games: [Game] = []
+    /// PC Games' shelves, as GameHub's store page: Trending first, then grids.
+    struct Shelf: Identifiable { let title: String; var games: [Game]; var id: String { title } }
+    @Published private(set) var shelves: [Shelf] = []
     @Published private(set) var error: String?
     private var loading = false
 
@@ -170,6 +173,8 @@ struct GameHubFullPage<Content: View>: View {
             struct Item: Decodable { let id: Int; let type: Int?; let name: String; let header_image: String? }
             let top_sellers: Section?
             let new_releases: Section?
+            let specials: Section?
+            let coming_soon: Section?
         }
         do {
             let url = URL(string: "https://store.steampowered.com/api/featuredcategories?l=english")!
@@ -180,6 +185,14 @@ struct GameHubFullPage<Content: View>: View {
                 .filter { ($0.type ?? 0) == 0 && seen.insert($0.id).inserted }
                 .prefix(12)
             games = items.map { Game(id: $0.id, name: $0.name, image: $0.header_image.flatMap(URL.init(string:))) }
+            func shelf(_ title: String, _ section: Featured.Section?, _ count: Int) -> Shelf? {
+                var seen = Set<Int>()
+                let list = (section?.items ?? []).filter { ($0.type ?? 0) == 0 && seen.insert($0.id).inserted }.prefix(count)
+                    .map { Game(id: $0.id, name: $0.name, image: $0.header_image.flatMap(URL.init(string:))) }
+                return list.isEmpty ? nil : Shelf(title: title, games: Array(list))
+            }
+            shelves = [shelf("Trending", featured.top_sellers, 10), shelf("On Sale", featured.specials, 10),
+                       shelf("New Releases", featured.new_releases, 10), shelf("Coming Soon", featured.coming_soon, 10)].compactMap { $0 }
             await loadDetails()
         } catch {
             self.error = "The Steam store could not be reached. Check the connection and try again."
@@ -194,13 +207,20 @@ struct GameHubFullPage<Content: View>: View {
             struct Body: Decodable { let short_description: String?; let genres: [Genre]? }
             struct Genre: Decodable { let description: String }
         }
-        for (i, game) in games.enumerated() {
-            guard let url = URL(string: "https://store.steampowered.com/api/appdetails?appids=\(game.id)&l=english"),
+        // Every game once: the Recommended cards first, then the shelves.
+        var ids: [Int] = games.map(\.id)
+        for shelf in shelves { for game in shelf.games where !ids.contains(game.id) { ids.append(game.id) } }
+        for id in ids.prefix(48) {
+            guard let url = URL(string: "https://store.steampowered.com/api/appdetails?appids=\(id)&l=english"),
                   let (data, _) = try? await URLSession.shared.data(from: url),
-                  let body = (try? JSONDecoder().decode([String: Details].self, from: data))?[String(game.id)]?.data else { continue }
-            guard games.indices.contains(i) else { return }
-            games[i].tagline = body.short_description ?? ""
-            games[i].genres = (body.genres ?? []).prefix(3).map(\.description)
+                  let body = (try? JSONDecoder().decode([String: Details].self, from: data))?[String(id)]?.data else { continue }
+            let tagline = body.short_description ?? "", genres = (body.genres ?? []).prefix(3).map(\.description)
+            for i in games.indices where games[i].id == id { games[i].tagline = tagline; games[i].genres = genres }
+            for s in shelves.indices {
+                for i in shelves[s].games.indices where shelves[s].games[i].id == id {
+                    shelves[s].games[i].tagline = tagline; shelves[s].games[i].genres = genres
+                }
+            }
         }
     }
 }
@@ -217,18 +237,19 @@ struct GameHubHomePage: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 56) {
+            HStack(spacing: 24) {
                 ForEach(Array(["Recommended", "PC Games", "Retro Games"].enumerated()), id: \.offset) { i, title in
                     Button { withAnimation(ConsoleHomeView.motion) { section = i } } label: {
-                        VStack(spacing: 8) {
-                            Text(title).font(.system(size: 20)).foregroundStyle(section == i ? Color.white : GameHub.secondary)
-                            Capsule().fill(section == i ? Color.white : .clear).frame(width: 18, height: 4)
+                        VStack(spacing: 5) {
+                            Text(title).font(.system(size: 18, weight: section == i ? .bold : .regular))
+                                .foregroundStyle(section == i ? Color.white : Color.white.opacity(0.5))
+                            Capsule().fill(section == i ? Color.white : .clear).frame(width: 15, height: 3)
                         }
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.top, 4)
+            .padding(.top, 2).padding(.bottom, 6)
             Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1)
             Group {
                 switch section {
@@ -258,17 +279,39 @@ struct GameHubHomePage: View {
         }
     }
 
+    /// GameHub's PC Games: a Trending row of wide cards tinted with their art's
+    /// colour, then shelves of small cards five to a row. Steam's store feed
+    /// stands in for GameHub's own catalogue.
     @ViewBuilder private var pcGames: some View {
-        if games.isEmpty {
-            GameHubEmptyState(title: "No games yet", message: "Import a game from Library, or install one from Steam.")
+        if store.shelves.isEmpty, let error = store.error {
+            GameHubEmptyState(title: "Couldn't load games", message: error)
+        } else if store.shelves.isEmpty {
+            ProgressView().tint(.white).frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            cards(games.map { entry in
-                Card(id: ConsoleHomeView.key(entry), title: entry.title,
-                     tagline: entry.lastPlayed.map { "Played \($0.formatted(.relative(presentation: .named)))" } ?? "",
-                     tags: [entry.desktop == true ? "Windows Desktop" : entry.steamAppID != nil ? "Steam" : "PC Game"],
-                     art: AnyView(LibraryArtwork(entry: entry, backdrop: true)),
-                     tap: { entry.steamAppID == nil ? play(entry) : open(entry) })
-            })
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(store.shelves.enumerated()), id: \.element.id) { i, shelf in
+                        Text(shelf.title).font(.system(size: 20, weight: .bold)).padding(.top, i == 0 ? 14 : 30).padding(.bottom, 12)
+                        if i == 0 {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                LazyHStack(spacing: 12) {
+                                    ForEach(shelf.games) { game in
+                                        Button { openSteamApp(game.id) } label: { GameHubTrendingCard(game: game) }.buttonStyle(GameHubPressStyle())
+                                    }
+                                }
+                            }
+                            .scrollClipDisabled()
+                        } else {
+                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 11), count: 5), spacing: 11) {
+                                ForEach(shelf.games.prefix(10)) { game in
+                                    Button { openSteamApp(game.id) } label: { GameHubShelfCard(game: game) }.buttonStyle(GameHubPressStyle())
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.bottom, 30)
+            }
         }
     }
 
@@ -746,5 +789,68 @@ struct GameHubDownloadsPage: View {
             let speed = p.bytesPerSecond > 0 ? " · " + ByteCountFormatter.string(fromByteCount: Int64(p.bytesPerSecond), countStyle: .file) + "/s" : ""
             return "\(Int(p.fraction * 100))% · " + size + speed
         }
+    }
+}
+
+/// PC Games' Trending card: the art on top, the name and tagline on a plate
+/// tinted with the art's own colour.
+struct GameHubTrendingCard: View {
+    let game: GameHubStoreModel.Game
+    @State private var image: UIImage?
+    @State private var tint = Color(white: 0.2)
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Group {
+                if let image { Image(uiImage: image).resizable().aspectRatio(contentMode: .fill) } else { Color.white.opacity(0.05) }
+            }
+            .frame(width: 214, height: 110).clipped()
+            VStack(alignment: .leading, spacing: 5) {
+                Text(game.name).font(.system(size: 17, weight: .bold)).lineLimit(1)
+                Text(game.tagline).font(.system(size: 14)).foregroundStyle(Color.white.opacity(0.6)).lineLimit(1)
+            }
+            .padding(.horizontal, 12).padding(.top, 10)
+            Spacer(minLength: 0)
+        }
+        .frame(width: 214, height: 191, alignment: .top)
+        .background(tint)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .task(id: game.id) {
+            guard image == nil, let url = game.image, let (data, _) = try? await URLSession.shared.data(from: url),
+                  let loaded = UIImage(data: data) else { return }
+            image = loaded
+            tint = GameHubTint.color(of: loaded)
+        }
+    }
+}
+
+/// A shelf card: the art inset at the top, the name, then the tagline.
+struct GameHubShelfCard: View {
+    let game: GameHubStoreModel.Game
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            AsyncImage(url: game.image) { $0.resizable().aspectRatio(contentMode: .fill) } placeholder: { Color.white.opacity(0.05) }
+                .frame(height: 74).frame(maxWidth: .infinity).clipped()
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .padding(4)
+            Text(game.name).font(.system(size: 16)).lineLimit(1).padding(.horizontal, 8).padding(.top, 4)
+            Text(game.tagline).font(.system(size: 14)).foregroundStyle(Color.white.opacity(0.5)).lineLimit(1)
+                .padding(.horizontal, 8).padding(.top, 4).padding(.bottom, 14)
+        }
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.05)))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.white.opacity(0.1)))
+    }
+}
+
+/// The average colour of an image, darkened, for GameHub's tinted card plates.
+enum GameHubTint {
+    static func color(of image: UIImage) -> Color {
+        guard let cg = image.cgImage else { return Color(white: 0.2) }
+        var pixel = [UInt8](repeating: 0, count: 4)
+        guard let context = CGContext(data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return Color(white: 0.2) }
+        context.interpolationQuality = .medium
+        context.draw(cg, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        let scale = 0.42
+        return Color(red: Double(pixel[0]) / 255 * scale, green: Double(pixel[1]) / 255 * scale, blue: Double(pixel[2]) / 255 * scale)
     }
 }
