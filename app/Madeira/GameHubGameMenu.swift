@@ -81,7 +81,7 @@ struct GameHubGameMenu: View {
         .onAppear {
             eco = madeira_get_eco() != 0; fenceMode = FPSOverlayFenceMode.current
             // With a controller in hand the focus starts on the first row, as in Settings.
-            if GCController.current != nil || pads.name != nil { row = focusable.first }
+            if LibraryController.shared.focusVisible || pads.name != nil { row = focusable.first }
         }
         .onReceive(LibraryController.shared.commands) { handle($0) }
     }
@@ -167,6 +167,16 @@ struct GameHubGameMenu: View {
                     .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(GameHub.postBlue))
             }
             .buttonStyle(.plain)
+            // Several games per session: the game keeps running behind GameHub's home (X).
+            if model.canLeaveRunning {
+                Button { model.leaveRunning() } label: {
+                    Label("Home", systemImage: "house.fill").font(.system(size: 16, weight: .medium))
+                        .frame(maxWidth: .infinity).frame(height: 50)
+                        .background(GameHubCard(cornerRadius: 14))
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Goes back to GameHub. The game keeps running; play it again to resume it.")
+            }
             Button { model.requestQuit() } label: {
                 Label("Exit game", systemImage: "power").font(.system(size: 16, weight: .medium))
                     .foregroundStyle(Color(red: 1, green: 0.42, blue: 0.4))
@@ -313,6 +323,8 @@ struct GameHubGameMenu: View {
                 if let current = row, current < items.count { _ = items[current].adjust(command == "left" ? -1 : 1) }
             case "accept":
                 if let current = row, current < items.count { items[current].activate() } else { row = focusable.first }
+            case "x":
+                if model.canLeaveRunning { model.leaveRunning() }
             default: break
             }
         }

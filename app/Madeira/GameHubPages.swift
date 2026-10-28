@@ -854,3 +854,198 @@ enum GameHubTint {
         return Color(red: Double(pixel[0]) / 255 * scale, green: Double(pixel[1]) / 255 * scale, blue: Double(pixel[2]) / 255 * scale)
     }
 }
+
+// MARK: - Search
+
+/// GameHub's Search (Y, or the magnifier): a back chevron and the field over
+/// Popular and Hot Games. It opens with the magnifier sliding from the middle
+/// to the field's start as the field widens (~0.25 s). Typing lists your own
+/// games that match, then Steam's store; a store game you have opens its
+/// details, another its store page. With a controller: up and down move, LB/RB
+/// change the list, A types or opens, B leaves the field, then the page.
+struct GameHubSearchPage: View {
+    let games: [LibraryEntry]
+    let play: (LibraryEntry) -> Void
+    let openSteamApp: (Int) -> Void
+    let close: () -> Void
+    @ObservedObject private var ranking = GameHubRankingModel.shared
+    @ObservedObject private var pad = LibraryController.shared
+    @State private var text = ""
+    @State private var list = 0
+    /// The controller's focus: a row, or nil on the field.
+    @State private var focus: Int?
+    @State private var opened = false
+    @State private var store: [StoreItem] = []
+    @State private var lookup: Task<Void, Never>?
+    @FocusState private var typing: Bool
+
+    struct StoreItem: Decodable, Hashable { let id: Int; let name: String }
+    private enum Row { case game(LibraryEntry), app(Int, String) }
+
+    private var query: String { text.trimmingCharacters(in: .whitespaces) }
+    private var rows: [Row] {
+        if query.isEmpty {
+            let ranks = list == 0 ? Array(ranking.ranks.prefix(20))
+                : ranking.ranks.filter { $0.lastWeek > $0.rank }.sorted { ($0.lastWeek - $0.rank) > ($1.lastWeek - $1.rank) }.prefix(20).map { $0 }
+            return ranks.map { .app($0.appID, ranking.names[$0.appID] ?? "App \($0.appID)") }
+        }
+        let mine = games.filter { $0.desktop != true && $0.title.localizedCaseInsensitiveContains(query) }
+        let owned = Set(mine.compactMap(\.steamAppID))
+        return mine.map { .game($0) } + store.filter { !owned.contains($0.id) }.map { .app($0.id, $0.name) }
+    }
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            LinearGradient(colors: [Color(red: 0.2, green: 0.16, blue: 0.14), GameHub.background], startPoint: .top, endPoint: .bottom)
+                .ignoresSafeArea()
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 14) {
+                    Button(action: close) {
+                        Image(systemName: "chevron.left").font(.system(size: 20, weight: .medium)).foregroundStyle(Color.white.opacity(0.6))
+                            .frame(width: 28, height: 38)
+                    }
+                    .buttonStyle(.plain).accessibilityLabel("Back")
+                    field
+                }
+                .padding(.top, 15)
+                if query.isEmpty {
+                    HStack(spacing: 24) {
+                        ForEach(Array(["Popular", "Hot Games"].enumerated()), id: \.offset) { i, title in
+                            Button { list = i; focus = nil } label: {
+                                VStack(spacing: 6) {
+                                    Text(title).font(.system(size: 18, weight: list == i ? .bold : .regular))
+                                        .foregroundStyle(list == i ? Color.white : Color.white.opacity(0.6))
+                                    Capsule().fill(list == i ? Color.white : .clear).frame(width: 16, height: 3)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.top, 20)
+                }
+                results.padding(.top, 14)
+            }
+            .padding(.horizontal, GameHub.margin)
+            GameHubHints(items: typing ? [] : [("A", "Confirm"), ("B", "Back")])
+        }
+        .foregroundStyle(.white)
+        .task { await ranking.load() }
+        .onAppear {
+            withAnimation(GameHub.standard(0.25)) { opened = true }
+            // GameHub raises the keyboard at once; with a controller the field waits for A.
+            if !pad.focusVisible { typing = true }
+        }
+        .onChange(of: query) { _, value in search(value) }
+        .onReceive(LibraryController.shared.commands) { handle($0) }
+    }
+
+    private var field: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass").font(.system(size: 18)).foregroundStyle(Color.white.opacity(0.7))
+            if opened {
+                TextField("", text: $text, prompt: Text("Search Game Name").foregroundStyle(Color.white.opacity(0.4)))
+                    .font(.system(size: 16)).focused($typing).submitLabel(.search)
+                    .autocorrectionDisabled().textInputAutocapitalization(.never)
+                    .transition(.opacity)
+            }
+        }
+        .padding(.horizontal, 14).frame(height: 38)
+        .frame(maxWidth: opened ? .infinity : 46, alignment: .leading)
+        .background(Capsule().fill(Color.white.opacity(0.06)))
+        .overlay(Capsule().strokeBorder(Color.white.opacity(focus == nil && pad.focusVisible ? 0.8 : 0.35), lineWidth: 1.5))
+        .frame(maxWidth: .infinity)
+    }
+
+    private var results: some View {
+        let rows = self.rows
+        return ScrollViewReader { reader in
+            ScrollView(showsIndicators: false) {
+                LazyVStack(spacing: 0) {
+                    if rows.isEmpty {
+                        Text(query.isEmpty ? (ranking.error ?? "Loading…") : "No games found")
+                            .font(.system(size: 15)).foregroundStyle(GameHub.secondary).padding(.vertical, 40)
+                    }
+                    ForEach(Array(rows.enumerated()), id: \.offset) { i, row in
+                        Button { open(row) } label: { rowView(row, place: i + 1) }
+                            .buttonStyle(.plain)
+                            .gameHubFocus(focus == i && pad.focusVisible, cornerRadius: 12, plate: true)
+                            .id(i)
+                    }
+                }
+                .padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Color.white.opacity(0.06)))
+                .padding(.bottom, 40)
+            }
+            .onChange(of: focus) { _, value in
+                if let value { withAnimation(GameHubLibraryPage.motion) { reader.scrollTo(value, anchor: .center) } }
+            }
+        }
+    }
+
+    private func rowView(_ row: Row, place: Int) -> some View {
+        HStack(spacing: 14) {
+            if query.isEmpty {
+                Text("\(place)").font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(place <= 3 ? Color.black.opacity(0.75) : Color.white.opacity(0.6))
+                    .frame(width: 26, height: 26)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(place == 1 ? Color(red: 0.86, green: 0.7, blue: 0.35)
+                        : place == 2 ? Color(white: 0.72) : place == 3 ? Color(red: 0.8, green: 0.55, blue: 0.35) : .clear))
+            }
+            Group {
+                switch row {
+                case .game(let entry): LibraryArtwork(entry: entry)
+                case .app(let appID, _): SteamGameArtwork(appID: appID)
+                }
+            }
+            .frame(width: 46, height: 46).clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            switch row {
+            case .game(let entry):
+                Text(entry.title).font(.system(size: 16)).lineLimit(1)
+                Spacer(minLength: 8)
+                Text("In Library").font(.system(size: 13)).foregroundStyle(GameHub.secondary)
+            case .app(_, let name):
+                Text(name).font(.system(size: 16)).lineLimit(1)
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(.horizontal, 14).frame(height: 66)
+        .contentShape(Rectangle())
+    }
+
+    private func open(_ row: Row) {
+        switch row {
+        case .game(let entry): play(entry)
+        case .app(let appID, _):
+            if let entry = games.first(where: { $0.steamAppID == appID }) { play(entry) } else { openSteamApp(appID) }
+        }
+    }
+
+    /// Steam's store search, 0.35 s after the last keystroke.
+    private func search(_ term: String) {
+        lookup?.cancel()
+        guard !term.isEmpty else { store = []; return }
+        lookup = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled else { return }
+            struct Response: Decodable { let items: [StoreItem] }
+            var parts = URLComponents(string: "https://store.steampowered.com/api/storesearch/")!
+            parts.queryItems = [.init(name: "term", value: term), .init(name: "l", value: "english"), .init(name: "cc", value: "US")]
+            guard let url = parts.url, let (data, _) = try? await URLSession.shared.data(from: url),
+                  let decoded = try? JSONDecoder().decode(Response.self, from: data), !Task.isCancelled else { return }
+            store = decoded.items
+        }
+    }
+
+    private func handle(_ command: String) {
+        let count = rows.count
+        switch command {
+        case "up": if let f = focus { focus = f == 0 ? nil : f - 1 }
+        case "down": if count > 0 { typing = false; focus = min(count - 1, (focus ?? -1) + 1) }
+        case "tab", "tabPrev": if query.isEmpty { list = list == 0 ? 1 : 0; focus = nil }
+        case "accept":
+            if let f = focus, rows.indices.contains(f) { open(rows[f]) } else { typing = true }
+        case "back": if typing { typing = false } else { close() }
+        default: break
+        }
+    }
+}

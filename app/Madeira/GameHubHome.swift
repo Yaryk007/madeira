@@ -78,7 +78,7 @@ enum GameHubShelf: Int, CaseIterable, Identifiable {
 
 /// The full-screen pages GameHub opens over the tabs.
 enum GameHubPage: Identifiable {
-    case settings, downloads
+    case settings, downloads, search
     var id: Int { hashValue }
 }
 
@@ -142,10 +142,16 @@ struct GameHubHomeView: View {
     @State private var tab: GameHubTab = .library
     /// The Library page behind a tile; nil shows the covers and tiles.
     @State private var shelf: GameHubShelf?
-    /// Library's focus: the covers (0) or the tiles (1), and the index in each.
+    /// Library's focus: the covers (0), View Details and ≡ (1) or the tiles (2), and the index in each.
     @State private var libraryRow = 0
     @State private var coverIndex = 0
+    @State private var buttonIndex = 0
     @State private var tileIndex = 0
+    /// The controller's focus in the top bar (the tabs, then the status buttons), or nil in the page.
+    @State private var barFocus: Int?
+    /// Where ≡ is, for a controller's A.
+    @State private var moreButton = CGRect.zero
+    @ObservedObject private var pad = LibraryController.shared
     /// Every game, last played first (the covers and Home's PC Games).
     @State private var games: [LibraryEntry] = []
     @State private var myGamesIndex = 0
@@ -201,7 +207,8 @@ struct GameHubHomeView: View {
                     content.frame(maxWidth: .infinity, maxHeight: .infinity)
                         .padding(.top, tab == .library ? 0 : GameHubTopBar.height)
                     if !(tab == .library && shelf != nil) {
-                        GameHubTopBar(tab: tab, actions: GameHubAction.forTab(tab), select: { switchTab(to: $0) }, perform: perform)
+                        GameHubTopBar(tab: tab, actions: GameHubAction.forTab(tab), focus: pad.focusVisible ? barFocus : nil,
+                                      select: { switchTab(to: $0) }, perform: perform)
                             .padding(.horizontal, GameHub.margin)
                     }
                 }
@@ -222,6 +229,7 @@ struct GameHubHomeView: View {
                         .transition(.opacity)
                 }
             }
+            if page == nil && !modal && !showFirstRun { GameHubHints(items: hints) }
             GameHubControllerToast().padding(.top, 62).padding(.trailing, GameHub.margin)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                 .allowsHitTesting(false)
@@ -229,16 +237,20 @@ struct GameHubHomeView: View {
             if let dialog {
                 GameHubDialog(content: dialog) { self.dialog = nil }.transition(.opacity)
             }
+            // GameHub's popups open with a short animation and close at once.
             if let anchor = moreAnchor, games.indices.contains(coverIndex) {
                 let entry = games[coverIndex]
-                GameHubMoreMenu(anchor: anchor, choose: { action in moreAnchor = nil; gameAction(action, entry) },
+                let running = model.running(entry)
+                GameHubMoreMenu(anchor: anchor, closeGame: running.map { game in { moreAnchor = nil; model.closeRunning(game) } },
+                                choose: { action in moreAnchor = nil; gameAction(action, entry) },
                                 dismiss: { moreAnchor = nil })
+                    .transition(.identity)
             }
             if let entry = detailsEntry {
                 GameHubDetailsCard(entry: entry, launch: { launch([entry], at: 0) },
                                    choose: { action in detailsEntry = nil; gameAction(action, entry) },
                                    dismiss: { detailsEntry = nil })
-                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                    .transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.95)), removal: .identity))
             }
             if let entry = removeEntry {
                 let target = GameFiles.target(entry)
@@ -267,13 +279,12 @@ struct GameHubHomeView: View {
         }
         .animation(.easeInOut(duration: 0.18), value: page)
         .animation(.easeInOut(duration: 0.15), value: dialog)
-        .animation(.easeOut(duration: 0.16), value: moreAnchor != nil)
-        .animation(.easeOut(duration: 0.18), value: detailsEntry?.id)
+        .animation(GameHub.standard(0.22), value: detailsEntry?.id)
         .animation(.easeOut(duration: 0.15), value: removeEntry?.id)
         .onChange(of: coverIndex) { _, _ in
             // GameHub swaps the backdrop once the row has moved, with a crossfade.
             let target = focusedCover
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + GameHubLibraryPage.settle) {
                 if focusedCover?.id == target?.id { backdropEntry = target }
             }
         }
@@ -322,7 +333,9 @@ struct GameHubHomeView: View {
         .onReceive(model.$entries) { rebuildGames(entries: $0) }
         .onReceive(steamGames.$games) { rebuildGames(steam: $0) }
         .onReceive(LibraryController.shared.commands) { handle($0) }
+        .onPreferenceChange(GameHubMoreAnchor.self) { moreButton = $0 }
         .onAppear {
+            GameHubTouchObserver.install()
             EndedSessionSurface.install(); EndedSessionSurface.hide(reason: "library-appeared")
             GameHubPerformance.applyRecommendedIfNeeded()
             onboarding.presentIfNeeded()
@@ -356,19 +369,19 @@ struct GameHubHomeView: View {
     @ViewBuilder private var content: some View {
         switch tab {
         case .library:
-            libraryContent.transition(.opacity)
+            libraryContent.transition(.identity)
         case .community:
-            GameHubCommunityPage().transition(.opacity)
+            GameHubCommunityPage().transition(.identity)
         case .home:
             GameHubHomePage(section: $homeSection, games: games, open: { selected = $0 }, play: { entry in launch(games, at: games.firstIndex { $0.id == entry.id } ?? -1) },
                             openSteamApp: openSteamApp)
-                .transition(.opacity)
+                .transition(.identity)
         case .ranking:
-            GameHubRankingPage(open: openSteamApp).transition(.opacity)
+            GameHubRankingPage(open: openSteamApp).transition(.identity)
         case .profile:
             GameHubProfilePage(games: games.count, signIn: askSteamSignIn, openSteam: { switchTab(to: .library); openShelf(.steam) },
                                community: { switchTab(to: .community) })
-                .transition(.opacity)
+                .transition(.identity)
         }
     }
 
@@ -383,23 +396,27 @@ struct GameHubHomeView: View {
             GameHubFullPage(title: "Download Manager", glow: Color(red: 0.3, green: 0.16, blue: 0.5).opacity(0.75), close: { self.page = nil }) {
                 GameHubDownloadsPage()
             }
+        case .search:
+            GameHubSearchPage(games: games, play: { entry in self.page = nil; launch(games, at: games.firstIndex { $0.id == entry.id } ?? -1) },
+                              openSteamApp: { appID in self.page = nil; openSteamApp(appID) }, close: { self.page = nil })
         }
     }
 
     @ViewBuilder private var libraryContent: some View {
         switch shelf {
         case nil:
-            GameHubLibraryPage(games: games, coverIndex: coverIndex, tileIndex: tileIndex, row: libraryRow,
+            GameHubLibraryPage(games: games, coverIndex: coverIndex, tileIndex: tileIndex, buttonIndex: buttonIndex, row: libraryRow,
+                               lit: pad.focusVisible && barFocus == nil, running: Set(model.running.map(\.entry.id)),
                                focusCover: { i in
                                    if coverIndex == i { launch(games, at: i) }
                                    else { withAnimation(GameHubLibraryPage.motion) { coverIndex = i; libraryRow = 0 } }
                                },
                                details: { if games.indices.contains(coverIndex) { detailsEntry = games[coverIndex] } },
                                more: { moreAnchor = $0 },
-                               tile: { i in tileIndex = i; libraryRow = 1; openShelf(GameHubShelf.allCases[i]) })
+                               tile: { i in tileIndex = i; libraryRow = 2; openShelf(GameHubShelf.allCases[i]) })
         case .myGames?:
             GameHubGamesPage(title: "My Games", tabs: ["PC Games", "Retro Games"], tab: $myGamesTab,
-                             search: { CommunityModel.shared.searching.toggle() },
+                             search: { page = .search },
                              settings: { settingsCategory = .peripherals; page = .settings }, back: closeShelf) {
                 if myGamesTab == 0 && !myGames.isEmpty {
                     GameHubGameGrid(games: myGames, index: myGamesIndex, columns: $myGamesColumns,
@@ -443,7 +460,7 @@ struct GameHubHomeView: View {
 
     private func perform(_ action: GameHubAction) {
         switch action {
-        case .search: CommunityModel.shared.searching.toggle()
+        case .search: page = .search
         case .layoutSwitch: UserDefaults.standard.set(false, forKey: ConsoleHome.key)
         case .notifications:
             dialog = .init(icon: "bell.badge", title: "Notifications", message: "You're all caught up.", primary: nil)
@@ -463,13 +480,19 @@ struct GameHubHomeView: View {
 
     private func switchTab(to newTab: GameHubTab) {
         guard newTab != tab else { if newTab == .library { closeShelf() }; return }
-        withAnimation(UIAccessibility.isReduceMotionEnabled ? nil : .easeInOut(duration: 0.18)) { tab = newTab }
+        // GameHub swaps the page at once (the pages' .identity transitions); the
+        // top bar's label moves over ~0.23 s (GameHubTopBar).
+        withAnimation(GameHub.standard(0.23)) { tab = newTab }
+        if barFocus != nil { barFocus = newTab.rawValue }
     }
 
     private func cycleTab(_ step: Int) {
         let all = GameHubTab.allCases
         let index = all.firstIndex(of: tab) ?? 0
-        switchTab(to: all[(index + step + all.count) % all.count])
+        let next = all[(index + step + all.count) % all.count]
+        // LB/RB also put the controller's focus on the new tab's pill, as GameHub does.
+        if !(tab == .library && shelf != nil) { barFocus = next.rawValue }
+        switchTab(to: next)
     }
 
     private func openShelf(_ target: GameHubShelf) {
@@ -590,7 +613,7 @@ struct GameHubHomeView: View {
     private func handle(_ command: String) {
         guard !modal else { return }
         if page != nil {
-            // Settings takes its own commands and calls exit on B; Downloads closes on B.
+            // Settings and Search take their own commands; Downloads closes on B.
             if page == .downloads, command == "back" { page = nil }
             return
         }
@@ -600,6 +623,9 @@ struct GameHubHomeView: View {
         case "menu": settingsCategory = .account; page = .settings; return
         default: break
         }
+        if let focus = barFocus { barCommand(command, at: focus); return }
+        // Y is GameHub's Search on every tab's page (in a shelf it adds a game).
+        if command == "add", !(tab == .library && shelf != nil) { page = .search; return }
         switch tab {
         case .library:
             switch shelf {
@@ -615,32 +641,83 @@ struct GameHubHomeView: View {
             switch command {
             case "left": homeSection = max(0, homeSection - 1)
             case "right": homeSection = min(2, homeSection + 1)
+            case "up": barFocus = tab.rawValue
             case "back": switchTab(to: .library)
             default: break
             }
-        case .community, .ranking, .profile: if command == "back" { switchTab(to: .library) }
+        case .ranking:
+            switch command {
+            case "x": Task { await GameHubRankingModel.shared.load(force: true) }
+            case "up": barFocus = tab.rawValue
+            case "back": switchTab(to: .library)
+            default: break
+            }
+        case .community, .profile:
+            if command == "up" { barFocus = tab.rawValue } else if command == "back" { switchTab(to: .library) }
         }
     }
 
+    /// The top bar: left and right move along the tabs and the status buttons,
+    /// A opens a tab (the focus stays on it) or uses a button, down goes back to the page.
+    private func barCommand(_ command: String, at focus: Int) {
+        let tabs = GameHubTab.allCases, actions = GameHubAction.forTab(tab)
+        switch command {
+        case "left": barFocus = max(0, focus - 1)
+        case "right": barFocus = min(tabs.count + actions.count - 1, focus + 1)
+        case "down", "back": barFocus = nil
+        case "accept":
+            if focus < tabs.count { switchTab(to: tabs[focus]) }
+            else if actions.indices.contains(focus - tabs.count) { perform(actions[focus - tabs.count]) }
+        default: break
+        }
+    }
+
+    /// What the bottom-right hints say: only what the buttons do here.
+    private var hints: [(String, String)] {
+        if barFocus != nil { return [("A", "Confirm")] }
+        switch tab {
+        case .library:
+            if shelf != nil { return [("B", "Back"), ("A", "Confirm")] }
+            if libraryRow == 1 && buttonIndex == 0 && !games.isEmpty { return [("Y", "Search"), ("A", "View")] }
+            return [("Y", "Search"), ("A", "Confirm")]
+        case .ranking: return [("X", "Refresh"), ("Y", "Search")]
+        case .community, .home, .profile: return [("Y", "Search")]
+        }
+    }
+
+    /// Library: the covers (row 0), View Details and ≡ (row 1), the tiles (row 2).
     private func libraryCommand(_ command: String) {
         let motion = GameHubLibraryPage.motion
-        if libraryRow == 0 && !games.isEmpty {
+        let row = games.isEmpty ? 2 : libraryRow
+        switch row {
+        case 0:
             switch command {
             case "left": withAnimation(motion) { coverIndex = max(0, coverIndex - 1) }
             case "right": withAnimation(motion) { coverIndex = min(games.count - 1, coverIndex + 1) }
-            case "down": withAnimation(motion) { libraryRow = 1 }
+            case "up": barFocus = tab.rawValue
+            case "down": libraryRow = 1; buttonIndex = 0
             case "accept": launch(games, at: coverIndex)
             case "x": details(games, at: coverIndex)
-            case "add": importer.start()
             default: break
             }
-        } else {
+        case 1:
+            switch command {
+            case "left": buttonIndex = 0
+            case "right": buttonIndex = 1
+            case "up": libraryRow = 0
+            case "down": withAnimation(motion) { libraryRow = 2 }
+            case "accept":
+                if buttonIndex == 0 { detailsEntry = games[coverIndex] } else { moreAnchor = moreButton }
+            case "x": details(games, at: coverIndex)
+            default: break
+            }
+        default:
             switch command {
             case "left": tileIndex = max(0, tileIndex - 1)
             case "right": tileIndex = min(GameHubShelf.allCases.count - 1, tileIndex + 1)
-            case "up": if !games.isEmpty { withAnimation(motion) { libraryRow = 0 } }
+            case "up":
+                if games.isEmpty { barFocus = tab.rawValue } else { withAnimation(motion) { libraryRow = 1 } }
             case "accept": openShelf(GameHubShelf.allCases[tileIndex])
-            case "add": importer.start()
             default: break
             }
         }
@@ -671,6 +748,8 @@ struct GameHubTopBar: View {
     static let height: CGFloat = 54
     let tab: GameHubTab
     let actions: [GameHubAction]
+    /// The controller's focus: a tab (0-4), then a status button; nil when it is in the page.
+    var focus: Int? = nil
     let select: (GameHubTab) -> Void
     let perform: (GameHubAction) -> Void
     @ObservedObject private var pads = GameHubControllers.shared
@@ -682,10 +761,17 @@ struct GameHubTopBar: View {
                     Button { select(t) } label: {
                         HStack(spacing: 6) {
                             GHImage(name: t.asset(selected: t == tab), fallback: t.icon(selected: t == tab)).frame(width: 23, height: 23)
-                            if t == tab { Text(t.title).font(.system(size: 20, weight: .bold)).fixedSize() }
+                            // The selected tab's name grows out of its icon while the old one folds away.
+                            if t == tab {
+                                Text(t.title).font(.system(size: 20, weight: .bold)).fixedSize()
+                                    .transition(.asymmetric(insertion: .opacity.combined(with: .scale(scale: 0.7, anchor: .leading)),
+                                                            removal: .opacity.combined(with: .scale(scale: 0.7, anchor: .leading))))
+                            }
                         }
                         .foregroundStyle(t == tab ? Color.white : Color.white.opacity(0.88))
                         .frame(height: 44)
+                        // GameHub's pill: 36 pt tall, 10 pt past the icon and the name.
+                        .background { pill(on: focus == t.rawValue).padding(.horizontal, -10).frame(height: 36) }
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -693,15 +779,18 @@ struct GameHubTopBar: View {
                     .accessibilityAddTraits(t == tab ? .isSelected : [])
                 }
             }
-            .animation(ConsoleHomeView.motion, value: tab)
+            .animation(GameHub.standard(0.23), value: tab)
             Spacer(minLength: 16)
             HStack(spacing: 18) {
-                ForEach(actions, id: \.self) { action in
+                ForEach(Array(actions.enumerated()), id: \.element) { i, action in
                     Button { perform(action) } label: {
-                        if GHAsset.has(action.asset) { GHImage(name: action.asset).frame(width: 23, height: 23) }
-                        else if action == .layoutSwitch { GameHubLayoutSwitchIcon().frame(width: 22, height: 22) }
-                        else if action == .controller, pads.name != nil { Image(systemName: "gamecontroller.fill") }
-                        else { Image(systemName: action.icon) }
+                        Group {
+                            if GHAsset.has(action.asset) { GHImage(name: action.asset).frame(width: 23, height: 23) }
+                            else if action == .layoutSwitch { GameHubLayoutSwitchIcon().frame(width: 22, height: 22) }
+                            else if action == .controller, pads.name != nil { Image(systemName: "gamecontroller.fill") }
+                            else { Image(systemName: action.icon) }
+                        }
+                        .background { pill(on: focus == GameHubTab.allCases.count + i).frame(width: 32, height: 32) }
                     }
                     .accessibilityLabel(action.label)
                 }
@@ -712,6 +801,16 @@ struct GameHubTopBar: View {
             GameHubStatus()
         }
         .frame(height: Self.height)
+    }
+
+    private func pill(on: Bool) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
+        return ZStack {
+            shape.fill(Color.white.opacity(0.08))
+            shape.strokeBorder(Color.white.opacity(0.62), lineWidth: 1.5)
+        }
+        .opacity(on ? 1 : 0)
+        .animation(GameHub.focusFade, value: on)
     }
 }
 

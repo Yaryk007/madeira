@@ -920,8 +920,20 @@ final class HardwareInput: ObservableObject {
         refreshFocus("keyboard disconnected")
     }
 
+    /// Keys GameHub's interface took (LibraryController.key): their release is its too.
+    private var interfaceKeys = Set<Int>()
+
     private func key(_ code: GCKeyCode, _ pressed: Bool) {
         tickKeys += 1
+        // GameHub: while the interface owns input the keyboard drives it like a pad.
+        let usage = Int(code.rawValue)
+        if pressed || interfaceKeys.contains(usage) {
+            let taken = LibraryController.shared.key(usage: usage, pressed: pressed, typing: typingElsewhere())
+            if pressed, taken { interfaceKeys.insert(usage); return }
+            if !pressed, interfaceKeys.remove(usage) != nil { return }
+        } else if usage == 0xE1 || usage == 0xE5 {
+            _ = LibraryController.shared.key(usage: usage, pressed: false, typing: false)
+        }
         guard let vk = HardwareKeyMap.vk(forHIDUsage: code.rawValue) else {
             // An unmapped key is a key the program did not receive; the usage
             // number names it exactly.

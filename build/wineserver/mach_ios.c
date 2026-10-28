@@ -23,6 +23,8 @@
 #include "../madeira_cfg.h"   /* ml1095 */
 
 #include <assert.h>
+#include <stdlib.h>
+#include <string.h>
 #include <errno.h>
 #include <stdio.h>
 #include <signal.h>
@@ -510,7 +512,7 @@ static int ios_safe_read( uint64_t addr, void *buf, unsigned int size )
  *
  * Counters are AGGREGATE on purpose -- a per-event line would perturb exactly
  * the timing this changes. Failures are always reported (capped). */
-int ios_real_suspend_enabled(void)
+static int ios_real_suspend_env(void)
 {
     static int env = -1;
     if (env < 0)
@@ -520,6 +522,116 @@ int ios_real_suspend_enabled(void)
         fprintf( stderr, "[real-susp] ml730 MADEIRA_REAL_SUSPEND=%d\n", env );
     }
     return env;
+}
+
+/* GameHub: the session host (build/gamehub-host/host.c) pauses a game left
+ * behind GameHub's home with NtSuspendProcess. Those suspensions are real,
+ * whatever MADEIRA_REAL_SUSPEND says, and only those: the app publishes the
+ * host's Windows process id in MADEIRA_GAMEHUB_HOST_PID, and a suspend
+ * requested by one of its threads holds the target's threads at a safe point
+ * (ios_safe_point below). */
+static int ios_freeze_by_host(void)
+{
+    const char *e = getenv( "MADEIRA_GAMEHUB_HOST_PID" );
+    unsigned long pid;
+    if (!e || !*e || !current || !current->process) return 0;
+    pid = strtoul( e, NULL, 10 );
+    return pid && current->process->id == pid;
+}
+
+int ios_real_suspend_enabled(void)
+{
+    return ios_real_suspend_env() || ios_freeze_by_host();
+}
+
+/* GameHub freeze safe points. Every Windows program here is threads of this
+ * one iOS process, so a game frozen while it holds a lock the others share
+ * (malloc's, dyld's, Metal's, stdio's, Wine's unix side) would stop them too.
+ * A stopped thread is safe to keep when it is in code of no image (the game's
+ * own x86 code under FEX, its JIT output) or waiting in the kernel, as long as
+ * none of its callers is in one of those libraries. The image table is taken
+ * once, before the first freeze, and again when the image count changes. */
+#include <mach-o/dyld.h>
+#include <mach-o/loader.h>
+
+/* kind: 0 other library, 1 libsystem_kernel, 2 a library with shared state (never
+ * safe, even as a caller), 3 the app itself (Wine's unix side: not safe running,
+ * fine as the caller of a kernel wait, which is how a Wine thread blocks). */
+struct ios_image_range { uintptr_t start, end; unsigned char kind; };
+static struct ios_image_range *ios_ranges;
+static uint32_t ios_range_count, ios_range_images;
+
+static void ios_ranges_refresh(void)
+{
+    uint32_t n = _dyld_image_count(), i, out = 0;
+    if (n == ios_range_images && ios_ranges) return;
+    free( ios_ranges );
+    ios_ranges = calloc( n, sizeof(*ios_ranges) );
+    if (!ios_ranges) { ios_range_count = ios_range_images = 0; return; }
+    for (i = 0; i < n; i++)
+    {
+        const struct mach_header_64 *mh = (const struct mach_header_64 *)_dyld_get_image_header( i );
+        const char *name = _dyld_get_image_name( i );
+        const struct load_command *lc;
+        uint32_t c;
+        if (!mh || mh->magic != MH_MAGIC_64) continue;
+        lc = (const struct load_command *)(mh + 1);
+        for (c = 0; c < mh->ncmds; c++, lc = (const struct load_command *)((const char *)lc + lc->cmdsize))
+        {
+            const struct segment_command_64 *seg = (const struct segment_command_64 *)lc;
+            if (lc->cmd != LC_SEGMENT_64 || strcmp( seg->segname, "__TEXT" )) continue;
+            ios_ranges[out].start = (uintptr_t)mh;
+            ios_ranges[out].end = (uintptr_t)mh + seg->vmsize;
+            ios_ranges[out].kind = 0;
+            if (name && strstr( name, "libsystem_kernel" )) ios_ranges[out].kind = 1;
+            else if (i == 0) ios_ranges[out].kind = 3;
+            else if (name && (strstr( name, "libsystem_malloc" ) || strstr( name, "dyld" ) ||
+                     strstr( name, "libsystem_c." ) || strstr( name, "libobjc" ) || strstr( name, "Metal" ) ||
+                     strstr( name, "IOGPU" ) || strstr( name, "AGX" ) || strstr( name, "IOKit" ) ||
+                     strstr( name, "QuartzCore" ) || strstr( name, "AudioToolbox" ) || strstr( name, "CoreAudio" ) ||
+                     strstr( name, "CoreFoundation" ) || strstr( name, "Foundation" ) || strstr( name, "libdispatch" )))
+                ios_ranges[out].kind = 2;
+            out++;
+            break;
+        }
+    }
+    ios_range_count = out;
+    ios_range_images = n;
+}
+
+/* -1: in no image, else the kind of the image the address is in. */
+static int ios_image_kind( uintptr_t addr )
+{
+    uint32_t i;
+    for (i = 0; i < ios_range_count; i++)
+        if (addr >= ios_ranges[i].start && addr < ios_ranges[i].end) return ios_ranges[i].kind;
+    return -1;
+}
+
+static int ios_safe_point( mach_port_t port )
+{
+    arm_thread_state64_t st;
+    mach_msg_type_number_t count = ARM_THREAD_STATE64_COUNT;
+    uintptr_t pc, fp;
+    int kind, depth;
+
+    if (thread_get_state( port, ARM_THREAD_STATE64, (thread_state_t)&st, &count )) return 0;
+    pc = (uintptr_t)arm_thread_state64_get_pc( st ) & 0x0000007fffffffffULL;
+    fp = (uintptr_t)arm_thread_state64_get_fp( st );
+    kind = ios_image_kind( pc );
+    if (kind >= 0 && kind != 1) return 0;               /* running library or app code */
+    if (kind == -1) return 1;                           /* the game's own code */
+    /* Waiting in the kernel: safe unless a caller holds a shared library's lock. */
+    for (depth = 0; depth < 24 && fp && !(fp & 7); depth++)
+    {
+        uintptr_t frame[2];
+        vm_size_t got = 0;
+        if (vm_read_overwrite( mach_task_self(), fp, sizeof(frame), (vm_address_t)frame, &got ) || got != sizeof(frame)) break;
+        if (ios_image_kind( frame[1] & 0x0000007fffffffffULL ) == 2) return 0;
+        if (frame[0] <= fp) break;
+        fp = frame[0];
+    }
+    return 1;
 }
 
 static unsigned int rs_holds, rs_releases, rs_hold_fail, rs_release_fail, rs_ops;
@@ -563,15 +675,34 @@ int ios_thread_mach_hold( struct thread *thread )
     mach_port_t port;
     kern_return_t kr;
 
+    int host = 0, tries = 0;
+
     rs_tick();
-    if (!ios_real_suspend_enabled()) return 0;
+    if (!ios_real_suspend_env() && !(host = ios_freeze_by_host())) return 0;
     if (!rs_flag_ok( thread, "hold" )) return 0;
     if (thread->ios_mach_suspended) return 1;          /* nested: counter only */
     if (thread->unix_pid == -1 || thread->unix_tid == (unsigned int)-1) return 0;
+    if (host) ios_ranges_refresh();
     if (mach_port_extract_right( mach_task_self(), thread->unix_tid,
                                  MACH_MSG_TYPE_COPY_SEND, &port, &type ))
         return 0;
-    kr = thread_suspend( port );
+    for (;;)
+    {
+        kr = thread_suspend( port );
+        if (kr || !host || ios_safe_point( port )) break;
+        /* Stopped inside code every game shares (the allocator, dyld, Metal, Wine's
+         * unix side): let it finish and try again; give up after ~0.1 s. */
+        thread_resume( port );
+        if (++tries >= 100)
+        {
+            static unsigned int n_unsafe;
+            if (n_unsafe++ < 32)
+                fprintf( stderr, "[gamehub-freeze] tid=%04x never reached a safe point; left running\n", thread->id );
+            mach_port_deallocate( mach_task_self(), port );
+            return 0;
+        }
+        usleep( 1000 );
+    }
     mach_port_deallocate( mach_task_self(), port );
     if (kr)
     {
@@ -1062,7 +1193,7 @@ int ios_fill_thread_context( struct thread *thread,
      * exactly where the target would leave its blocking region. A snapshot-only
      * capture (ios_pending_persistent_hold == NULL) resumes as it always did,
      * and never releases a hold established by an earlier suspend. */
-    if (ios_pending_persistent_hold == thread && ios_real_suspend_enabled() &&
+    if (ios_pending_persistent_hold == thread && ios_real_suspend_env() &&
         rs_flag_ok( thread, "capture" ) && !thread->ios_mach_suspended)
     {
         thread->ios_mach_suspended = 1;   /* inherit THIS thread_suspend(): do not resume */

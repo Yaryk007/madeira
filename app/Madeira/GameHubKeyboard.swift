@@ -137,7 +137,7 @@ import UIKit
     func reset() {
         releaseModifiers()
         page = .letters; shift = false; capsLock = false; echo = ""
-        focus = (1, 0); focusVisible = GCController.current != nil
+        focus = (1, 0); focusVisible = LibraryController.shared.focusVisible
     }
 
     // MARK: Controller

@@ -329,8 +329,14 @@ static const char IOS_DEVICE_NAME[] = "ios-null";
  * typically creates one shared-mode render stream; if a game opens a
  * second concurrent stream we'd need a table. Not worried about that
  * for the Tier-1 silent driver. */
+/* GameHub (signal_arm64_ios.c): the calling thread's Windows process, and
+ * whether it is a game left running behind GameHub's home. */
+extern unsigned int madeira_current_windows_pid(void);
+extern int madeira_pid_in_background(unsigned int pid);
+
 struct ios_stream {
     int valid;
+    UINT32 pid;                  /* the Windows process that opened it (GameHub: muted in the background) */
     int started;
     uint64_t start_mach;        /* mach_absolute_time() at start() (null-mode clock) */
     uint64_t accumulated_frames; /* null-mode: frames "played" before last stop */
@@ -768,7 +774,15 @@ static OSStatus ios_audio_render_cb(void *refcon, AudioUnitRenderActionFlags *fl
     memset(out, 0, total * sizeof(float));
     for (i = 0; i < IOS_MAX_STREAMS; i++) {
         struct ios_stream *s = atomic_load_explicit(&g_mix[i], memory_order_acquire);
-        if (s) ios_mix_stream(s, out, nframes, dev_ch, dev_rate);
+        if (!s) continue;
+        if (s->pid && madeira_pid_in_background(s->pid)) {
+            /* GameHub: a game behind the home is consumed as usual (its audio
+             * clock keeps time) but mixed into scratch, so it is not heard. */
+            static float muted[8192];
+            if (total <= sizeof(muted) / sizeof(muted[0])) ios_mix_stream(s, muted, nframes, dev_ch, dev_rate);
+            continue;
+        }
+        ios_mix_stream(s, out, nframes, dev_ch, dev_rate);
     }
     /* Summing independent clients can exceed full scale; clamp rather than
      * letting it wrap into noise. */
@@ -1122,6 +1136,7 @@ static NTSTATUS ios_create_stream(void *args) {
     /* ml739: a stream per client. */
     struct ios_stream *s = calloc(1, sizeof(*s));
     if (!s) { p->result = E_OUTOFMEMORY; return STATUS_SUCCESS; }
+    s->pid = madeira_current_windows_pid();
     {   /* ml1066: WHO opens each stream. Slot 0 (16-bit stereo) carries full-scale
          * uniform noise (mean|x| 0.50, peak 1.0) from its very first buffer, while
          * the float client carries real, quiet audio. The name mmdevapi passes is

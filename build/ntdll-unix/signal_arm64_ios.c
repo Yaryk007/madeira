@@ -28,6 +28,7 @@
 
 #include <assert.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -303,6 +304,42 @@ static __thread uintptr_t ios_teb_for_signals = 0;
 pthread_key_t ios_teb_tls_key = 0;
 int ios_teb_tls_slot_offset = 0;  /* byte offset from TPIDRRO_EL0 base to TEB slot */
 int ios_teb_tls_key_created = 0;
+
+/* GameHub: the Windows process a thread belongs to (0 on a thread that is not
+ * Wine's), and the processes of the games left running behind GameHub's home
+ * (the app sets them from the session host's report, GameSessionHost.swift).
+ * Their audio is not mixed (audio_null_ios.c) and the game layer hands them no
+ * drawable (ContentView.swift), so a game that is not paused draws and plays
+ * nothing while it waits in the background. Lock-free: read on audio and
+ * render threads. */
+#define MADEIRA_MAX_BACKGROUND 64
+static _Atomic unsigned int madeira_background[MADEIRA_MAX_BACKGROUND];
+
+__attribute__((visibility("default"))) unsigned int madeira_current_windows_pid( void )
+{
+    TEB *teb = ios_teb_tls_key_created ? pthread_getspecific( ios_teb_tls_key ) : NULL;
+    return teb ? HandleToULong( teb->ClientId.UniqueProcess ) : 0;
+}
+
+__attribute__((visibility("default"))) void madeira_set_background_pids( const unsigned int *pids, int count )
+{
+    int i;
+    for (i = 0; i < MADEIRA_MAX_BACKGROUND; i++)
+        atomic_store_explicit( &madeira_background[i], i < count ? pids[i] : 0, memory_order_relaxed );
+}
+
+__attribute__((visibility("default"))) int madeira_pid_in_background( unsigned int pid )
+{
+    int i;
+    if (!pid) return 0;
+    for (i = 0; i < MADEIRA_MAX_BACKGROUND; i++)
+    {
+        unsigned int v = atomic_load_explicit( &madeira_background[i], memory_order_relaxed );
+        if (!v) return 0;
+        if (v == pid) return 1;
+    }
+    return 0;
+}
 
 /*
  * Per-thread Mach exception handler for EXC_BAD_ACCESS.

@@ -4,6 +4,7 @@
 
 import SwiftUI
 import UIKit
+import UIKit.UIGestureRecognizerSubclass
 @preconcurrency import GameController
 
 extension GameHub {
@@ -47,19 +48,31 @@ struct GameHubLibraryBackdrop: View {
             LinearGradient(stops: [.init(color: .clear, location: 0.55), .init(color: .black.opacity(0.55), location: 1)],
                            startPoint: .top, endPoint: .bottom)
         }
-        .animation(.easeInOut(duration: 0.25), value: entry.map(ConsoleHomeView.key))
+        .animation(GameHub.standard(0.3), value: entry.map(ConsoleHomeView.key))
         .ignoresSafeArea()
     }
 }
 
 /// Library: the covers, the title, View Details and ≡, then the four tiles,
 /// in one page that scrolls under the fixed top bar.
+///
+/// Motion, measured frame by frame on GameHub 6.3.1 (Android, 844 x 390 dp):
+/// a move scrolls the row and resizes the two covers in ~0.2 s (a spring,
+/// Compose stiffness ~800, damping ~0.85) while the title fades out (~0.09 s);
+/// once the row settles (~0.22 s after the press) the new title fades and
+/// grows in (0.22 s, from 92 %) and the backdrop crossfades (0.3 s, GameHubHomeView).
+/// The title and buttons stay dim unless the controller's focus is in the page.
 struct GameHubLibraryPage: View {
     let games: [LibraryEntry]
     let coverIndex: Int
     let tileIndex: Int
-    /// 0: the covers have the controller's focus, 1: the tiles.
+    /// View Details (0) or ≡ (1).
+    let buttonIndex: Int
+    /// The controller's focus: the covers (0), the buttons (1) or the tiles (2).
     let row: Int
+    /// The focus is in the page (not the top bar) and shown: the page is lit.
+    let lit: Bool
+    let running: Set<UUID>
     let focusCover: (Int) -> Void
     let details: () -> Void
     let more: (CGRect) -> Void
@@ -68,11 +81,16 @@ struct GameHubLibraryPage: View {
     static let big = CGSize(width: 135, height: 203)
     static let small = CGSize(width: 108, height: 163)
     static let gap: CGFloat = 11
-    static var motion: Animation? { UIAccessibility.isReduceMotionEnabled ? nil : .spring(response: 0.33, dampingFraction: 0.95) }
+    static var motion: Animation? { UIAccessibility.isReduceMotionEnabled ? nil : .spring(response: 0.22, dampingFraction: 0.85) }
+    /// From a press to the row at rest, when the title and backdrop follow.
+    static let settle = 0.22
 
-    /// The title and buttons hide while the row moves and come back after it.
+    /// The title hides while the row moves and comes back after it.
     @State private var infoShown = true
     @State private var settle: Task<Void, Never>?
+    @ObservedObject private var pad = LibraryController.shared
+
+    private var focusShown: Bool { pad.focusVisible && lit }
 
     var body: some View {
         ScrollViewReader { reader in
@@ -80,25 +98,27 @@ struct GameHubLibraryPage: View {
                 VStack(alignment: .leading, spacing: 0) {
                     if !games.isEmpty {
                         covers.id("covers")
-                        buttons.padding(.top, 20).opacity(infoShown ? 1 : 0)
+                        buttons.padding(.top, 20)
+                            .opacity(lit ? 1 : 0.62)
+                            .animation(GameHub.focusFade, value: lit)
                     }
-                    GameHubShelves(focus: row == 1 || games.isEmpty ? tileIndex : -1, tap: tile)
+                    GameHubShelves(focus: focusShown && (row == 2 || games.isEmpty) ? tileIndex : -1, tap: tile)
                         .padding(.top, games.isEmpty ? 7 : 36).id("tiles")
                 }
                 .padding(.horizontal, GameHub.margin).padding(.top, 61).padding(.bottom, 30)
             }
             .scrollClipDisabled()
             .onChange(of: row) { _, value in
-                withAnimation(Self.motion) { reader.scrollTo(value == 1 ? "tiles" : "covers", anchor: .center) }
+                withAnimation(Self.motion) { reader.scrollTo(value == 2 ? "tiles" : "covers", anchor: .center) }
             }
         }
         .onChange(of: coverIndex) { _, _ in
-            infoShown = false
+            withAnimation(UIAccessibility.isReduceMotionEnabled ? nil : .easeOut(duration: 0.09)) { infoShown = false }
             settle?.cancel()
             settle = Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(380))
+                try? await Task.sleep(for: .milliseconds(Int(Self.settle * 1000)))
                 guard !Task.isCancelled else { return }
-                withAnimation(.easeOut(duration: 0.2)) { infoShown = true }
+                withAnimation(GameHub.standard(0.22)) { infoShown = true }
             }
         }
     }
@@ -125,8 +145,11 @@ struct GameHubLibraryPage: View {
             }
             Text(games[coverIndex].title).font(.system(size: 20, weight: .bold)).lineLimit(1)
                 .frame(maxWidth: 420, alignment: .leading)
-                .offset(x: big.width + gap, y: small.height + 11)
+                .opacity(lit ? 1 : 0.62)
+                .animation(GameHub.focusFade, value: lit)
+                .scaleEffect(infoShown ? 1 : 0.92, anchor: .leading)
                 .opacity(infoShown ? 1 : 0)
+                .offset(x: big.width + gap, y: small.height + 11)
                 .allowsHitTesting(false)
         }
         .frame(height: big.height, alignment: .topLeading)
@@ -139,26 +162,25 @@ struct GameHubLibraryPage: View {
     }
 
     private func cover(_ entry: LibraryEntry, size: CGSize, focused: Bool) -> some View {
-        let controller = GCController.current != nil
-        return LibraryArtwork(entry: entry)
+        LibraryArtwork(entry: entry)
             .frame(width: size.width, height: size.height)
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(focused && row == 0 && controller ? Color.white : .clear, lineWidth: 2))
-            .overlay(alignment: .bottom) {
-                if focused && controller && row == 0 {
-                    HStack(spacing: 5) {
-                        ConsoleGlyph(text: "A")
-                        Text("Launch Game").font(.system(size: 12, weight: .medium))
+            .overlay(alignment: .topTrailing) {
+                // Left running behind the home (GameSessionHost): playing it resumes it.
+                if running.contains(entry.id) {
+                    HStack(spacing: 4) {
+                        Circle().fill(Color(red: 0.3, green: 0.85, blue: 0.4)).frame(width: 6, height: 6)
+                        Text("Running").font(.system(size: 11, weight: .semibold))
                     }
-                    .padding(.vertical, 6).frame(maxWidth: .infinity)
-                    .background(LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .top, endPoint: .bottom))
-                    .clipShape(UnevenRoundedRectangle(cornerRadii: .init(bottomLeading: 12, bottomTrailing: 12), style: .continuous))
+                    .padding(.horizontal, 7).frame(height: 20)
+                    .background(Capsule().fill(Color.black.opacity(0.6)))
+                    .padding(6)
                 }
             }
+            .gameHubFocus(focused && row == 0 && focusShown, cornerRadius: 12, outset: 3)
             .shadow(color: .black.opacity(0.35), radius: 8, y: 3)
             .contentShape(Rectangle())
-            .accessibilityLabel(entry.title)
+            .accessibilityLabel(entry.title + (running.contains(entry.id) ? ", running" : ""))
             .accessibilityAddTraits(.isButton)
     }
 
@@ -168,6 +190,7 @@ struct GameHubLibraryPage: View {
                 Text("View Details").font(.system(size: 17))
                     .frame(width: 155, height: 48)
                     .background(GameHubGlassPlate(cornerRadius: 16))
+                    .gameHubFocus(row == 1 && buttonIndex == 0 && focusShown, cornerRadius: 16, plate: true)
             }
             .buttonStyle(GameHubPressStyle())
             GeometryReader { geo in
@@ -175,13 +198,21 @@ struct GameHubLibraryPage: View {
                     Image(systemName: "line.3.horizontal").font(.system(size: 20, weight: .medium))
                         .frame(width: 48, height: 48)
                         .background(GameHubGlassPlate(cornerRadius: 16))
+                        .gameHubFocus(row == 1 && buttonIndex == 1 && focusShown, cornerRadius: 16, plate: true)
                 }
                 .buttonStyle(GameHubPressStyle())
                 .accessibilityLabel("More")
+                .preference(key: GameHubMoreAnchor.self, value: geo.frame(in: .global))
             }
             .frame(width: 48, height: 48)
         }
     }
+}
+
+/// Where ≡ is, so a controller's A opens its menu at the button.
+struct GameHubMoreAnchor: PreferenceKey {
+    static let defaultValue = CGRect.zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) { let next = nextValue(); if next != .zero { value = next } }
 }
 
 /// A translucent plate for buttons and tiles over the artwork.
@@ -215,7 +246,7 @@ struct GameHubShelves: View {
     var body: some View {
         HStack(spacing: 12) {
             ForEach(GameHubShelf.allCases) { shelf in
-                let focused = focus == shelf.rawValue && GCController.current != nil
+                let focused = focus == shelf.rawValue
                 Button { tap(shelf.rawValue) } label: {
                     VStack(spacing: 5) {
                         GameHubShelfIcon(shelf: shelf).frame(width: 33, height: 33)
@@ -223,8 +254,7 @@ struct GameHubShelves: View {
                     }
                     .frame(maxWidth: .infinity).frame(height: 84)
                     .background(GameHubGlassPlate(cornerRadius: 16))
-                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(focused ? Color.white.opacity(0.9) : .clear, lineWidth: 2))
+                    .gameHubFocus(focused, cornerRadius: 16, plate: true)
                 }
                 .buttonStyle(GameHubPressStyle())
                 .accessibilityLabel(shelf.title)
@@ -251,24 +281,41 @@ enum GameHubGameAction {
 }
 
 /// ≡'s menu: five rows on a frosted plate, over the dimmed page.
+/// It grows out of ≡ (from 30 %, ~0.15 s) and closes at once, as GameHub's.
 struct GameHubMoreMenu: View {
     let anchor: CGRect
+    var closeGame: (() -> Void)? = nil
     let choose: (GameHubGameAction) -> Void
     let dismiss: () -> Void
+    @State private var shown = false
+    @State private var focus = 0
+    @ObservedObject private var pad = LibraryController.shared
+    private let all: [GameHubGameAction] = [.settings, .desktop, .remove, .editInfo, .keys]
 
     var body: some View {
         GeometryReader { geo in
             let origin = geo.frame(in: .global).origin
             ZStack(alignment: .topLeading) {
-                Color.black.opacity(0.45).ignoresSafeArea().onTapGesture(perform: dismiss)
+                Color.black.opacity(shown ? 0.45 : 0).ignoresSafeArea().onTapGesture(perform: dismiss)
                 VStack(spacing: 0) {
-                    let all: [GameHubGameAction] = [.settings, .desktop, .remove, .editInfo, .keys]
+                    if let closeGame {
+                        Button(action: closeGame) {
+                            Text("Close Game").font(.system(size: 17)).foregroundStyle(Color(red: 1, green: 0.42, blue: 0.4))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 15).frame(height: 41)
+                                .contentShape(Rectangle())
+                                .gameHubFocus(focus == all.count && pad.focusVisible, cornerRadius: 12, plate: true)
+                        }
+                        .buttonStyle(.plain)
+                        Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1).padding(.horizontal, 15)
+                    }
                     ForEach(Array(all.enumerated()), id: \.offset) { i, action in
                         Button { choose(action) } label: {
                             Text(action.title).font(.system(size: 17))
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 15).frame(height: 41)
                                 .contentShape(Rectangle())
+                                .gameHubFocus(focus == i && pad.focusVisible, cornerRadius: 12, plate: true)
                         }
                         .buttonStyle(.plain)
                         if i < all.count - 1 { Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1).padding(.horizontal, 15) }
@@ -277,11 +324,26 @@ struct GameHubMoreMenu: View {
                 .padding(.vertical, 1)
                 .frame(width: 174)
                 .background(GameHubFrost(cornerRadius: 16, tint: Color(white: 0.22).opacity(0.78)))
-                .offset(x: anchor.minX + 24 - origin.x, y: max(8, anchor.maxY - 4 - 206 - origin.y))
-                .transition(.scale(scale: 0.92, anchor: .bottomLeading).combined(with: .opacity))
+                .scaleEffect(shown ? 1 : 0.3, anchor: .bottomLeading)
+                .opacity(shown ? 1 : 0)
+                .offset(x: anchor.minX + 24 - origin.x, y: max(8, anchor.maxY - 4 - (closeGame == nil ? 206 : 248) - origin.y))
             }
         }
         .ignoresSafeArea()
+        .onAppear { withAnimation(GameHub.standard(0.15)) { shown = true } }
+        .onReceive(LibraryController.shared.commands) { command in
+            let count = all.count + (closeGame == nil ? 0 : 1)
+            // Close Game, when there is one, is the top row: index all.count, shown first.
+            let order = (closeGame == nil ? [] : [all.count]) + Array(all.indices)
+            let at = order.firstIndex(of: focus) ?? 0
+            switch command {
+            case "up": focus = order[max(0, at - 1)]
+            case "down": focus = order[min(count - 1, at + 1)]
+            case "accept": if focus == all.count { closeGame?() } else { choose(all[focus]) }
+            case "back": dismiss()
+            default: break
+            }
+        }
     }
 }
 
@@ -296,6 +358,9 @@ struct GameHubNotice: View {
     var cancel: String? = "Cancel"
     let confirmed: () -> Void
     let dismiss: () -> Void
+    /// The controller's choice: Confirm (1) or Cancel (0).
+    @State private var focus = 1
+    @ObservedObject private var pad = LibraryController.shared
 
     var body: some View {
         ZStack {
@@ -320,12 +385,14 @@ struct GameHubNotice: View {
                             Text(cancel).font(.system(size: 17)).frame(maxWidth: .infinity).frame(height: 48)
                                 .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.1)))
                                 .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.white.opacity(0.14)))
+                                .gameHubFocus(focus == 0 && pad.focusVisible, cornerRadius: 14, outset: 3)
                         }
                     }
                     Button { dismiss(); confirmed() } label: {
                         Text(confirm).font(.system(size: 17)).frame(maxWidth: .infinity).frame(height: 48)
                             .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(GameHub.postBlue))
                             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color(red: 0.45, green: 0.75, blue: 1).opacity(0.7)))
+                            .gameHubFocus(focus == 1 && pad.focusVisible, cornerRadius: 14, outset: 3)
                     }
                 }
                 .buttonStyle(GameHubPressStyle())
@@ -341,6 +408,15 @@ struct GameHubNotice: View {
             }
         }
         .foregroundStyle(.white)
+        .onReceive(LibraryController.shared.commands) { command in
+            switch command {
+            case "left": if cancel != nil { focus = 0 }
+            case "right": focus = 1
+            case "accept": if focus == 0 { dismiss() } else { dismiss(); confirmed() }
+            case "back": dismiss()
+            default: break
+            }
+        }
     }
 }
 
@@ -352,6 +428,10 @@ struct GameHubDetailsCard: View {
     let choose: (GameHubGameAction) -> Void
     let dismiss: () -> Void
     @State private var grid = false
+    /// The controller's focus: More (0) or Launch Game (1) on the card, an action in the grid.
+    @State private var focus = 1
+    @ObservedObject private var pad = LibraryController.shared
+    private static let gridActions: [GameHubGameAction] = [.settings, .remove, .desktop, .editInfo, .keys]
 
     var body: some View {
         ZStack {
@@ -368,6 +448,28 @@ struct GameHubDetailsCard: View {
             .animation(.easeInOut(duration: 0.18), value: grid)
         }
         .foregroundStyle(.white)
+        .onReceive(LibraryController.shared.commands) { command in
+            if grid {
+                let count = Self.gridActions.count
+                switch command {
+                case "left": focus = max(0, focus - 1)
+                case "right": focus = min(count - 1, focus + 1)
+                case "up": focus = max(0, focus - 4)
+                case "down": focus = min(count - 1, focus + 4)
+                case "accept": choose(Self.gridActions[focus])
+                case "back": grid = false; focus = 0
+                default: break
+                }
+            } else {
+                switch command {
+                case "left": focus = 0
+                case "right": focus = 1
+                case "accept": if focus == 0 { grid = true; focus = 0 } else { dismiss(); launch() }
+                case "back": dismiss()
+                default: break
+                }
+            }
+        }
     }
 
     private var summary: some View {
@@ -393,6 +495,7 @@ struct GameHubDetailsCard: View {
                     GameHubFourDots().frame(width: 20, height: 20)
                         .frame(width: 51, height: 51)
                         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.12)))
+                        .gameHubFocus(focus == 0 && pad.focusVisible, cornerRadius: 14, outset: 3)
                 }
                 .accessibilityLabel("More")
                 Button { dismiss(); launch() } label: {
@@ -400,6 +503,7 @@ struct GameHubDetailsCard: View {
                         .frame(maxWidth: .infinity).frame(height: 51)
                         .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(GameHub.postBlue))
                         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color(red: 0.45, green: 0.75, blue: 1).opacity(0.6)))
+                        .gameHubFocus(focus == 1 && pad.focusVisible, cornerRadius: 16, outset: 3)
                 }
             }
             .buttonStyle(GameHubPressStyle())
@@ -420,11 +524,13 @@ struct GameHubDetailsCard: View {
             Text("More").font(.system(size: 18, weight: .bold)).padding(.top, 26)
             LazyVGrid(columns: Array(repeating: GridItem(.fixed(96), spacing: 0), count: 4), alignment: .center, spacing: 18) {
                 ForEach(items, id: \.1) { item in
+                    let index = Self.gridActions.firstIndex(of: item.0) ?? -1
                     Button { choose(item.0) } label: {
                         VStack(spacing: 10) {
                             Image(systemName: item.2).font(.system(size: 19))
                                 .frame(width: 50, height: 50)
                                 .background(Circle().fill(Color.white.opacity(0.12)))
+                                .gameHubFocus(index == focus && pad.focusVisible, cornerRadius: 25, outset: 3)
                             Text(item.1).font(.system(size: 14)).multilineTextAlignment(.center).lineLimit(2)
                                 .frame(height: 36, alignment: .top)
                         }
@@ -616,8 +722,8 @@ struct GameHubGameCard: View {
         }
         .frame(width: 134)
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.06)))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .stroke(focused ? Color.white : Color.white.opacity(0.1), lineWidth: focused ? 2 : 1))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Color.white.opacity(0.1)))
+        .gameHubFocus(focused, cornerRadius: 14, outset: 2)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
     }
@@ -635,6 +741,7 @@ struct GameHubGameGrid: View {
     let index: Int
     @Binding var columns: Int
     let tap: (Int) -> Void
+    @ObservedObject private var pad = LibraryController.shared
 
     var body: some View {
         GeometryReader { geo in
@@ -644,14 +751,14 @@ struct GameHubGameGrid: View {
                 ScrollView(showsIndicators: false) {
                     LazyVGrid(columns: Array(repeating: GridItem(.fixed(134), spacing: 13), count: count), alignment: .leading, spacing: 13) {
                         ForEach(games.indices, id: \.self) { i in
-                            GameHubGameCard(entry: games[i], focused: i == index && GCController.current != nil)
+                            GameHubGameCard(entry: games[i], focused: i == index && pad.focusVisible)
                                 .onTapGesture { tap(i) }
                                 .id(i)
                         }
                     }
                     .padding(.leading, 62).padding(.trailing, 58).padding(.top, 4).padding(.bottom, 30)
                 }
-                .onChange(of: index) { _, value in withAnimation(ConsoleHomeView.motion) { reader.scrollTo(value, anchor: .center) } }
+                .onChange(of: index) { _, value in withAnimation(GameHubLibraryPage.motion) { reader.scrollTo(value, anchor: .center) } }
             }
             .onAppear { columns = count }
             .onChange(of: count) { _, value in columns = value }
@@ -714,4 +821,106 @@ struct GameHubSheetStyle: ViewModifier {
 
 extension View {
     func gameHubSheet() -> some View { modifier(GameHubSheetStyle()) }
+}
+
+// MARK: - Controller focus
+
+extension GameHub {
+    /// GameHub's focus ring fades between items (~0.18 s) rather than sliding.
+    static let focusFade = Animation.easeOut(duration: 0.18)
+    /// Compose's FastOutSlowIn, the curve of GameHub's crossfades and size changes.
+    static func standard(_ duration: Double) -> Animation? {
+        UIAccessibility.isReduceMotionEnabled ? nil : .timingCurve(0.4, 0, 0.2, 1, duration: duration)
+    }
+}
+
+/// GameHub's focus ring: a light hairline with a faint glow around the focused
+/// item, outside its edge by `outset`, with an optional light plate under it.
+struct GameHubFocusRing: ViewModifier {
+    let on: Bool
+    var cornerRadius: CGFloat = 16
+    var outset: CGFloat = 0
+    var plate = false
+
+    func body(content: Content) -> some View {
+        content.overlay {
+            let shape = RoundedRectangle(cornerRadius: cornerRadius + outset, style: .continuous)
+            ZStack {
+                if plate { shape.fill(Color.white.opacity(0.08)) }
+                shape.strokeBorder(Color.white.opacity(0.8), lineWidth: 1.5)
+            }
+            .shadow(color: .white.opacity(0.16), radius: 4)
+            .padding(-outset)
+            .opacity(on ? 1 : 0)
+            .animation(GameHub.focusFade, value: on)
+            .allowsHitTesting(false)
+        }
+    }
+}
+
+extension View {
+    func gameHubFocus(_ on: Bool, cornerRadius: CGFloat = 16, outset: CGFloat = 0, plate: Bool = false) -> some View {
+        modifier(GameHubFocusRing(on: on, cornerRadius: cornerRadius, outset: outset, plate: plate))
+    }
+}
+
+/// GameHub's button hints, bottom right while a controller drives the page:
+/// a white disc with the button's letter and what it does. A new set slides
+/// in from the right edge with a fade (~0.12 s).
+struct GameHubHints: View {
+    let items: [(String, String)]
+    @ObservedObject private var pad = LibraryController.shared
+
+    var body: some View {
+        let key = items.map { $0.0 + $0.1 }.joined(separator: "|")
+        ZStack(alignment: .bottomTrailing) {
+            if pad.focusVisible && !items.isEmpty {
+                HStack(spacing: 22) {
+                    ForEach(items, id: \.0) { item in
+                        HStack(spacing: 6) {
+                            Text(item.0).font(.system(size: 12, weight: .heavy)).foregroundStyle(Color.black)
+                                .frame(width: 20, height: 20).background(Circle().fill(Color.white))
+                            Text(item.1).font(.system(size: 15, weight: .medium)).foregroundStyle(.white)
+                        }
+                    }
+                }
+                .id(key)
+                .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .opacity))
+            }
+        }
+        .animation(.easeOut(duration: 0.12), value: key)
+        .animation(.easeOut(duration: 0.12), value: pad.focusVisible)
+        .padding(.trailing, GameHub.margin).padding(.bottom, 15)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+/// Sees every touch that begins in the app's windows, so a touch hides the
+/// focus rings and hints (LibraryController.touched). Never delays or cancels one.
+final class GameHubTouchObserver: UIGestureRecognizer, UIGestureRecognizerDelegate {
+    @MainActor static func install() {
+        for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
+            for window in scene.windows where !(window.gestureRecognizers ?? []).contains(where: { $0 is GameHubTouchObserver }) {
+                window.addGestureRecognizer(GameHubTouchObserver())
+            }
+        }
+    }
+
+    init() {
+        super.init(target: nil, action: nil)
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+        delegate = self
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        LibraryController.shared.touched()
+        state = .failed
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
 }

@@ -22,6 +22,20 @@ import os.log
 // the window but has interaction disabled, so touches fall through to the
 // SwiftUI hierarchy (and thus to the placeholder's touch handlers).
 
+/// GameHub: the game layer gives no drawable to a game left running behind the
+/// home (madeira_pid_in_background): DXMT then skips that frame, without a blit
+/// or a present, so a game that is not paused draws nothing over the one in
+/// front. The wait paces it to five frames a second, so it barely runs.
+final class MadeiraGameMetalLayer: CAMetalLayer {
+    override func nextDrawable() -> CAMetalDrawable? {
+        if madeira_pid_in_background(madeira_current_windows_pid()) != 0 {
+            usleep(200_000)
+            return nil
+        }
+        return super.nextDrawable()
+    }
+}
+
 /// Raw window-level host for the presenting CAMetalLayer.
 final class MetalHostView: UIView {
     // Process-lifetime singleton. The CAMetalLayer is registered with DXMT's
@@ -31,7 +45,7 @@ final class MetalHostView: UIView {
     // one layer, forever; only its FRAME is re-parented/resized.
     static let shared = MetalHostView(frame: CGRect(x: 0, y: 0, width: 800, height: 600))
 
-    override class var layerClass: AnyClass { return CAMetalLayer.self }
+    override class var layerClass: AnyClass { return MadeiraGameMetalLayer.self }
     var metalLayer: CAMetalLayer { return layer as! CAMetalLayer }
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -2533,6 +2547,11 @@ struct ContentView: View {
     /// applies the entry's launch profile and runs the same full sequence as the
     /// developer interface's buttons.
     private func launchLibraryEntry(_ entry: LibraryEntry) {
+        // GameHub: a game left running behind the home comes back in front instead of starting again.
+        if library.current == nil, let running = library.running(entry) {
+            if GameSessionHost.alive { library.resume(running); return }
+            library.running.removeAll()
+        }
         // GameHub: an Epic game first gets a fresh Epic launch code (EpicStore), then starts.
         if let app = entry.epicApp, EpicStore.pendingArguments[entry.id] == nil {
             Task { @MainActor in

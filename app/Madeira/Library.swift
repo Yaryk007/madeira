@@ -4,6 +4,7 @@ import UIKit
 import Darwin
 import ImageIO
 import Combine
+@preconcurrency import GameController
 
 // ============================================================================
 // Library front end.
@@ -93,7 +94,17 @@ enum BuildStamp {
 final class LibraryController: ObservableObject, @unchecked Sendable {
     static let shared = LibraryController()
     @Published var connected = false
+    /// GameHub: focus rings and button hints show while a controller or the
+    /// keyboard drives the interface, and hide at the next touch, as in GameHub.
+    @Published private(set) var focusVisible = GCController.current != nil
     let commands = PassthroughSubject<String, Never>()
+    /// Main thread: a command from a pad or the keyboard.
+    private func emit(_ command: String) {
+        if !focusVisible { focusVisible = true }
+        commands.send(command)
+    }
+    /// Main thread: a finger or a pointer click on the interface.
+    func touched() { if focusVisible { focusVisible = false } }
     private let lock = NSLock()
     private var enabled = false
     private var owns = false
@@ -139,8 +150,60 @@ final class LibraryController: ObservableObject, @unchecked Sendable {
         }
         // GamehubiOS: a PS4/PS5 touchpad click opens or closes the in-game menu.
         if touchpadClick && GameHubPrefs.touchpadMenu { command = "menu" }
-        if let command { DispatchQueue.main.async { self.commands.send(command) } }
+        if let command { DispatchQueue.main.async { self.emit(command) } }
     }
+
+    // MARK: Keyboard
+
+    /// A hardware keyboard drives the interface as a pad does (GameHub on Android
+    /// takes the arrow keys as a D-pad): HardwareInput hands every key here first
+    /// and sends it to Windows only when this returns false. Keys are taken only
+    /// while the interface owns input (no game, or the in-game menu) and no text
+    /// field is typing. Arrows move (held, they repeat), Return/Space are A,
+    /// Escape/Backspace are B, X and Y are X and Y, Q/E or Tab/Shift-Tab are LB/RB
+    /// and M is Menu. Main thread.
+    func key(usage: Int, pressed: Bool, typing: Bool) -> Bool {
+        if usage == 0xE1 || usage == 0xE5 { shiftHeld = pressed; return false }
+        guard ownsInput, !typing else { stopKeyRepeat(); return false }
+        let command: String?
+        switch usage {
+        case 0x52: command = "up"
+        case 0x51: command = "down"
+        case 0x50: command = "left"
+        case 0x4F: command = "right"
+        case 0x28, 0x58, 0x2C: command = "accept"
+        case 0x29, 0x2A: command = "back"
+        case 0x1B: command = "x"
+        case 0x1C: command = "add"
+        case 0x14, 0x4B: command = "tabPrev"
+        case 0x08, 0x4E: command = "tab"
+        case 0x2B: command = shiftHeld ? "tabPrev" : "tab"
+        case 0x10, 0x65: command = "menu"
+        default: command = nil
+        }
+        guard let command else { return false }
+        if !pressed {
+            if repeatingKey == usage { stopKeyRepeat() }
+            return true
+        }
+        emit(command)
+        stopKeyRepeat()
+        if ["up", "down", "left", "right"].contains(command) {
+            repeatingKey = usage
+            // As the pad's hold-to-repeat: 0.45 s, then every 0.11 s.
+            keyRepeat = Timer.scheduledTimer(withTimeInterval: 0.45, repeats: false) { [weak self] _ in
+                self?.keyRepeat = Timer.scheduledTimer(withTimeInterval: 0.11, repeats: true) { [weak self] _ in
+                    guard let self, self.ownsInput else { self?.stopKeyRepeat(); return }
+                    self.emit(command)
+                }
+            }
+        }
+        return true
+    }
+    private var shiftHeld = false
+    private var repeatingKey: Int?
+    private var keyRepeat: Timer?
+    private func stopKeyRepeat() { keyRepeat?.invalidate(); keyRepeat = nil; repeatingKey = nil }
 }
 
 /// Which interface Madeira starts with: the library (the default) or the
@@ -701,6 +764,67 @@ final class LibraryModel: ObservableObject {
     /// GameHub: the session host's job this game runs as; its exit ends the game
     /// while the session stays (GameSessionHost.swift).
     var hostToken: Int?
+    /// GameHub: a game left running behind GameHub's home (the in-game menu's
+    /// Home), with the host job it runs as.
+    struct RunningGame: Identifiable {
+        let token: Int
+        let entry: LibraryEntry
+        var id: Int { token }
+    }
+    /// Games running behind the home, the most recently left first.
+    @Published var running: [RunningGame] = []
+    private var runningTimer: Timer?
+    func running(_ entry: LibraryEntry) -> RunningGame? { running.first { $0.entry.id == entry.id } }
+    /// The game in front can be left running: it is the host's, and it has started.
+    var canLeaveRunning: Bool { hostToken != nil && current != nil && !launching }
+
+    /// In-game menu › Home: back to GameHub with the game still running; the host
+    /// minimizes its windows. Playing it again resumes it (resume).
+    func leaveRunning() {
+        guard let token = hostToken, let entry = activeEntry else { return }
+        running.removeAll { $0.token == token }
+        running.insert(RunningGame(token: token, entry: entry), at: 0)
+        LogStore.shared.log("[session-host] \(entry.title) keeps running behind the home (job \(token))")
+        hostToken = nil
+        GameSessionHost.hideAll()
+        finish(hosted: true)
+        watchRunning()
+    }
+
+    /// Brings a game left running back in front.
+    func resume(_ game: RunningGame) {
+        guard current == nil else { return }
+        running.removeAll { $0.token == game.token }
+        LogStore.shared.log("[session-host] resume \(game.entry.title) (job \(game.token))")
+        begin(game.entry)
+        hostToken = game.token
+        GameSessionHost.front(game.token)
+        showGameView(reason: "resume")
+    }
+
+    /// Ends a game left running, and whatever it started.
+    func closeRunning(_ game: RunningGame) {
+        GameSessionHost.close(game.token)
+        running.removeAll { $0.token == game.token }
+    }
+
+    /// Drops the games that ended behind the home; all of them when the session ended.
+    private func watchRunning() {
+        guard runningTimer == nil else { return }
+        runningTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] timer in
+            guard let self else { timer.invalidate(); return }
+            if wineserver_is_running() == 0 {
+                self.running.removeAll()
+            } else {
+                self.running.removeAll { game in
+                    let result = GameSessionHost.result(of: game.token)
+                    if result.finished { LogStore.shared.log("[session-host] \(game.entry.title) ended behind the home") }
+                    return result.finished
+                }
+            }
+            if self.running.isEmpty { timer.invalidate(); self.runningTimer = nil }
+        }
+    }
     // Why a session ended by itself (not Quit): the program the app launched
     // exited with a Windows error (wine_crash_exit_status, WineProcessBridge.m).
     // MADEIRA_EXIT_REPORT=0 returns to the library without a message.

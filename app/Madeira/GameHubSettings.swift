@@ -78,6 +78,7 @@ struct GameHubSettingsPage: View {
     @ObservedObject private var steamAccount = SteamSignInModel.shared
     @ObservedObject private var pads = GameHubControllers.shared
     @ObservedObject private var library = LibraryModel.shared
+    @ObservedObject private var pad = LibraryController.shared
     @AppStorage(ConsoleHome.key) private var gamehubHome = true
     @AppStorage(GameHubPrefs.keySoundKey) private var keySound = true
     @AppStorage(GameHubPrefs.buttonHapticsKey) private var buttonHaptics = true
@@ -99,6 +100,7 @@ struct GameHubSettingsPage: View {
     @State private var paging = GameHubPerformance.paging
     @State private var perfChanged = false
     @AppStorage(GameSessionHost.flagKey) private var multiSession = true
+    @AppStorage(GameSessionHost.pauseKey) private var pauseBackground = true
 
     var body: some View {
         // GameHub's Settings (measured): a 243 pt category column 54 pt from the
@@ -198,7 +200,7 @@ struct GameHubSettingsPage: View {
                     }
                     .padding(.leading, selected ? 15 : 17).padding(.trailing, 22).frame(minHeight: 54)
                     .foregroundStyle(selected ? Color.white : Color.white.opacity(0.55))
-                    .background(selected && row == nil && GCController.current != nil ? Color.white.opacity(0.07) : .clear)
+                    .background(selected && row == nil && pad.focusVisible ? Color.white.opacity(0.07) : .clear)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -395,6 +397,10 @@ struct GameHubSettingsPage: View {
                                 detail: GameSessionHost.bundled
                                     ? "Start another game after one ends without restarting GameHub. Off: one game per app run, as Madeira."
                                     : "Not in this build.", $multiSession))
+            list.append(.toggle("pause-background", "Pause games in the background",
+                                detail: "A game left running behind GameHub's home stops completely until you go back to it: no CPU, GPU or battery use. "
+                                    + "Off: it keeps running slowly, muted and without drawing. Turn off if a game freezes while another is in front.",
+                                $pauseBackground))
             list.append(.header("Paging"))
             list.append(.nav("paging", "Paging file", detail: "Moves game memory to storage when memory runs short, so bigger games fit. Some speed cost; uses free storage.",
                              value: GameHubPerformance.pagingLabel(paging)) {

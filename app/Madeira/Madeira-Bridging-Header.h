@@ -21,6 +21,12 @@ void wine_log_set_file(const char *path);
 typedef void (*wine_ui_log_callback_t)(const char *message);
 void wine_set_ui_log_callback(wine_ui_log_callback_t cb);
 
+// GameHub: games left running behind the home (signal_arm64_ios.c): the calling
+// thread's Windows process, the background list, and whether a process is on it.
+unsigned int madeira_current_windows_pid(void);
+void madeira_set_background_pids(const unsigned int *pids, int count);
+int madeira_pid_in_background(unsigned int pid);
+
 // DXMT present counter (winemetal_unix.c) — for SwiftUI FPS overlay
 #include <stdint.h>
 uint64_t madeira_get_present_count(void);
