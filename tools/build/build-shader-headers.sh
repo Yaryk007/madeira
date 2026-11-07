@@ -26,6 +26,22 @@ if "__METAL_MEMORY_FLAGS_NONE__" not in s:
     p.write_text(s.replace(old, new, 1))
 PY
 
+# The Glass fork builds on GitHub's Macs, whose toolchain can define the flags constant
+# while its atomic still takes four arguments. Ask the compiler instead of the macro.
+probe=$(mktemp -d)
+cat > "$probe/probe.metal" <<'METAL'
+#include <metal_stdlib>
+using namespace metal;
+kernel void probe(threadgroup atomic_int *c [[threadgroup(0)]]) {
+  __metal_atomic_fetch_add_explicit(c, 1, int(memory_order_relaxed), __METAL_MEMORY_SCOPE_THREADGROUP__, __METAL_MEMORY_FLAGS_NONE__);
+}
+METAL
+if ! xcrun -sdk macosx metal -o "$probe/probe.air" -c "$probe/probe.metal" -std=metal3.1 --target=air64-apple-macos14.0 2>/dev/null; then
+  echo "shader headers: this toolchain's atomic takes four arguments"
+  sed -i.orig 's/, __METAL_MEMORY_FLAGS_NONE__//' "$SRC/air_tessellation.metal"
+fi
+rm -rf "$probe"
+
 for name in "${SHADERS[@]}"; do
   [[ -f "$SRC/$name.metal" ]] || { echo "ERROR: missing shader source $SRC/$name.metal (is the dxmt submodule checked out?)" >&2; exit 1; }
   echo "shader $name: compiling"
