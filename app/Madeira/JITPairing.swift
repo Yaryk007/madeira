@@ -316,6 +316,7 @@ import UserNotifications
         content.title = title
         content.body = body
         content.sound = .default
+        content.interruptionLevel = .timeSensitive
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "madeira.pairing.\(UUID().uuidString)",
                                                                      content: content, trigger: nil))
     }

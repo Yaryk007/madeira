@@ -1,9 +1,22 @@
 import Foundation
 import SwiftUI
+import UserNotifications
+
+/// willfaust/madeira#560: iOS drops a notification while the app is on screen unless a
+/// delegate asks for it, and Madeira had none, so the pairing code never appeared when
+/// Madeira was in front (as it is inside LiveContainer).
+final class ForegroundNotifications: NSObject, UNUserNotificationCenterDelegate {
+    static let shared = ForegroundNotifications()
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .list, .sound])
+    }
+}
 
 @main
 struct MadeiraApp: App {
     init() {
+        UNUserNotificationCenter.current().delegate = ForegroundNotifications.shared
         // Opt-in iPhone pointer experiments (PhonePointer.m): before any scene exists.
         madeira_phone_pointer_setup()
         // madeira-bcd: the Metal Performance HUD's performance insights (the

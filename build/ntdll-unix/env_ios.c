@@ -1975,7 +1975,12 @@ static void *build_wow64_parameters( const RTL_USER_PROCESS_PARAMETERS *params )
 
     status = NtAllocateVirtualMemory( NtCurrentProcess(), (void **)&wow64_params, limit_2g - 1, &size,
                                       MEM_COMMIT, PAGE_READWRITE );
-    assert( !status );
+    if (status)
+    {
+        /* willfaust/madeira#590: a reachable failure, not a programming error. */
+        ERR( "no 32-bit memory for the process parameters (%zu bytes): %08x\n", (size_t)size, (unsigned int)status );
+        return NULL;
+    }
 
     wow64_params->AllocationSize  = size;
     wow64_params->Size            = size;
@@ -2076,6 +2081,12 @@ static void init_peb( RTL_USER_PROCESS_PARAMETERS *params, void *module )
         ios_wow_map_user_shared_data();
 
         wow64_params = build_wow64_parameters( params );
+        if (!wow64_params)
+        {
+            /* Nothing 32-bit can start without them: end with a status the host reports. */
+            ERR( "ending the process: its 32-bit parameters could not be built\n" );
+            NtTerminateProcess( NtCurrentProcess(), STATUS_NO_MEMORY );
+        }
 
         /* every 32-bit PEB field below is a GUEST address */
         wow_peb->ImageBaseAddress                = ios_wow_guest_addr( peb->ImageBaseAddress );

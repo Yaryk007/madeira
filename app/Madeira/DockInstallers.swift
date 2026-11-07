@@ -518,6 +518,11 @@ enum DockInstallScripts {
         var queued = 0
         for process in found {
             if done(process.run) { result.append(DockInstallPlanItem(process: process, status: .done)); continue }
+            // willfaust/madeira#570: DirectX June 2010's setup always ends with -9 here, and costs a whole
+            // session and a restart. Madeira's own Direct3D and audio libraries cover it, as for GOG (GOGSetup.directX).
+            if process.executable.lowercased().hasSuffix("\\dxsetup.exe") {
+                result.append(DockInstallPlanItem(process: process, status: .done)); continue
+            }
             if !exists(process.executable) { result.append(DockInstallPlanItem(process: process, status: .missing)); continue }
             if let reason = runnable(process) {
                 result.append(DockInstallPlanItem(process: process, status: .unsupported, reason: reason)); continue
