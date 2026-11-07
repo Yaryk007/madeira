@@ -2,8 +2,7 @@ name: Build IPA
 
 on:
   push:
-    branches: [main, 'codex/pr-build-*']
-  pull_request:
+    branches: [glass]
   workflow_dispatch:
 
 permissions:
@@ -19,13 +18,15 @@ concurrency:
 
 jobs:
   plan:
-    runs-on: xcode-27
+    runs-on: macos-26
     outputs:
       ipa: ${{ steps.key.outputs.ipa }}
       reuse: ${{ steps.ipa.outputs.cache-hit }}
       sdk: ${{ steps.sdk.outputs.key }}
       ipaenv: ${{ steps.sdk.outputs.ipa }}
     steps:
+      - name: Select newest Xcode
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)" && xcodebuild -version
       - uses: actions/checkout@v4
       - name: Check build reuse rules
         run: |
@@ -54,11 +55,13 @@ jobs:
   reuse:
     needs: plan
     if: needs.plan.outputs.reuse == 'true'
-    runs-on: xcode-27
+    runs-on: macos-26
     env:
       MADEIRA_PLANNED_SDK: ${{ needs.plan.outputs.sdk }}
       MADEIRA_RUNTIME_SDK: ${{ needs.plan.outputs.sdk }}
     steps:
+      - name: Select newest Xcode
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)" && xcodebuild -version
       - uses: actions/checkout@v4
       - id: sdk
         run: bash tools/build/ci-input-key.sh
@@ -83,11 +86,13 @@ jobs:
   llvm:
     needs: plan
     if: needs.plan.outputs.reuse != 'true'
-    runs-on: xcode-27
+    runs-on: macos-26
     env:
       MADEIRA_PLANNED_SDK: ${{ needs.plan.outputs.sdk }}
     timeout-minutes: 360
     steps:
+      - name: Select newest Xcode
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)" && xcodebuild -version
       - uses: actions/checkout@v4
       - id: sdk
         run: bash tools/build/ci-input-key.sh
@@ -123,13 +128,15 @@ jobs:
   fex:
     needs: plan
     if: needs.plan.outputs.reuse != 'true'
-    runs-on: xcode-27
+    runs-on: macos-26
     env:
       MADEIRA_PLANNED_SDK: ${{ needs.plan.outputs.sdk }}
     timeout-minutes: 360
     outputs:
       key: ${{ steps.key.outputs.key }}
     steps:
+      - name: Select newest Xcode
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)" && xcodebuild -version
       - uses: actions/checkout@v4
       - id: sdk
         run: bash tools/build/ci-input-key.sh
@@ -163,13 +170,15 @@ jobs:
   i386:
     needs: plan
     if: needs.plan.outputs.reuse != 'true'
-    runs-on: xcode-27
+    runs-on: macos-26
     env:
       MADEIRA_PLANNED_SDK: ${{ needs.plan.outputs.sdk }}
     timeout-minutes: 360
     outputs:
       key: ${{ steps.key.outputs.key }}
     steps:
+      - name: Select newest Xcode
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)" && xcodebuild -version
       - uses: actions/checkout@v4
       - id: sdk
         run: bash tools/build/ci-input-key.sh
@@ -213,7 +222,7 @@ jobs:
   runtime:
     needs: [plan, llvm]
     if: needs.plan.outputs.reuse != 'true'
-    runs-on: xcode-27
+    runs-on: macos-26
     timeout-minutes: 360
     strategy:
       fail-fast: false
@@ -224,6 +233,8 @@ jobs:
       MADEIRA_RUNTIME_SDK: ${{ needs.plan.outputs.sdk }}
       MADEIRA_RUNTIME_REUSE: '1'
     steps:
+      - name: Select newest Xcode
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)" && xcodebuild -version
       - uses: actions/checkout@v4
       - id: sdk
         run: bash tools/build/ci-input-key.sh
@@ -258,7 +269,7 @@ jobs:
   app:
     needs: [plan, llvm, fex, i386, runtime]
     if: needs.plan.outputs.reuse != 'true'
-    runs-on: xcode-27
+    runs-on: macos-26
     env:
       MADEIRA_PLANNED_SDK: ${{ needs.plan.outputs.sdk }}
       MADEIRA_PLANNED_IPA: ${{ needs.plan.outputs.ipaenv }}
@@ -266,6 +277,8 @@ jobs:
       MADEIRA_RUNTIME_REUSE: '1'
     timeout-minutes: 360
     steps:
+      - name: Select newest Xcode
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)" && xcodebuild -version
       - uses: actions/checkout@v4
         with:
           submodules: recursive
