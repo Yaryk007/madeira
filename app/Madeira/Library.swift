@@ -112,16 +112,29 @@ final class LibraryController: ObservableObject, @unchecked Sendable {
     func configure(enabled: Bool, ownsInput: Bool) {
         lock.lock(); self.enabled = enabled && allowed; owns = ownsInput; lock.unlock()
     }
+    /// The Glass pointer is on (GlassPointer.swift): the left stick moves it instead of the focus.
+    private var pointerMode = false
+    func setPointerMode(_ on: Bool) { lock.lock(); pointerMode = on; lock.unlock() }
+    /// The left stick, -1...1, for the Glass pointer.
+    private var stick = (x: Float(0), y: Float(0))
+    var stickValue: (x: Float, y: Float) { lock.lock(); defer { lock.unlock() }; return stick }
+    private var repeatAt: UInt64 = 0
+    /// A held direction repeats after a pause, so long lists don't take a press per row.
+    private static let repeatDelay: UInt64 = 380_000_000, repeatStep: UInt64 = 120_000_000
     /// One sample of player 1's pad, in XInput button bits and stick units.
     func sample(buttons raw: UInt16, lx: Int16, ly: Int16) {
         lock.lock()
         guard enabled else { lock.unlock(); return }
+        stick = (Float(lx) / 32767, Float(ly) / 32767)
         var buttons = raw
-        if owns {
+        if owns && !pointerMode {
             if lx < -16000 { buttons |= 4 }; if lx > 16000 { buttons |= 8 }
             if ly > 16000 { buttons |= 1 }; if ly < -16000 { buttons |= 2 }
         }
-        let pressed = buttons & ~last; last = buttons
+        var pressed = buttons & ~last; last = buttons
+        let now = DispatchTime.now().uptimeNanoseconds
+        if pressed & 0xf != 0 { repeatAt = now + Self.repeatDelay }
+        else if owns, buttons & 0xf != 0, now >= repeatAt { repeatAt = now + Self.repeatStep; pressed |= buttons & 0xf }
         let own = owns, announce = !announced; announced = true
         lock.unlock()
         if announce { DispatchQueue.main.async { self.connected = true; fputs("[frontend-controller] navigation active\n", stderr) } }
@@ -129,7 +142,7 @@ final class LibraryController: ObservableObject, @unchecked Sendable {
         // Reserve the Back+Start chord in gameplay, leaving ordinary Start intact.
         if !own, buttons & 0x30 == 0x30, pressed & 0x30 != 0 { command = "menu" }
         if own {
-            for (mask, name): (UInt16, String) in [(1, "up"), (2, "down"), (4, "left"), (8, "right"), (0x1000, "accept"), (0x2000, "back"), (0x8000, "add"), (0x10, "menu"), (0x100, "tab"), (0x200, "tab")] {
+            for (mask, name): (UInt16, String) in [(1, "up"), (2, "down"), (4, "left"), (8, "right"), (0x1000, "accept"), (0x2000, "back"), (0x4000, "action"), (0x8000, "add"), (0x10, "menu"), (0x20, "view"), (0x100, "tabLeft"), (0x200, "tabRight")] {
                 if pressed & mask != 0 { command = name; break }
             }
         }
@@ -3309,6 +3322,8 @@ struct LibraryView: View {
     @ObservedObject private var jitState = LibraryJITState.shared
     /// Madeira Dock's start, for Settings › Steam (Onboarding.swift).
     var startDock: (DockGame, Bool) -> Void = { _, _ in }
+    /// The tab to open on: 1 is Settings, which is how the Glass interface shows them.
+    var initialTab = 0
     /// First-run setup (Onboarding.swift).
     @ObservedObject private var onboarding = OnboardingModel.shared
     @ObservedObject private var jit = JITCoordinator.shared
@@ -3419,6 +3434,7 @@ struct LibraryView: View {
         // A setup opened from Files, a chat or a madeira://setup link (GameSetupShare.swift).
         .modifier(GameSetupInboxPresenter())
         .fullScreenCover(isPresented: $onboarding.presented) { OnboardingView() }
+        .onAppear { if initialTab != 0 { tab = initialTab } }
         .onAppear {
             // An ended desktop session's surface never stays over the library.
             EndedSessionSurface.install(); EndedSessionSurface.hide(reason: "library-appeared")
@@ -3435,7 +3451,7 @@ struct LibraryView: View {
         .onAppear { GlassSkin.shared.start() }
         .onDisappear { GlassSkin.shared.stop() }
         .onReceive(controller.commands) { command in
-            if selected == nil, !browser, !onboarding.presented, command == "tab" { switchTab(to: 1 - tab) }
+            if selected == nil, !browser, !onboarding.presented, command.hasPrefix("tab") { switchTab(to: 1 - tab) }
         }
     }
     @ToolbarContentBuilder private var libraryToolbar: some ToolbarContent {

@@ -23,6 +23,11 @@
 		A1007B04 /* ItchLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2007B04 /* ItchLibrary.swift */; };
 		A1007B05 /* ItchGames.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2007B05 /* ItchGames.swift */; };
 		A1006A01 /* GOGLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2006A01 /* GOGLibrary.swift */; };
+		A100F100 /* GlassArchive.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200F100 /* GlassArchive.swift */; };
+		A100F101 /* GlassImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200F101 /* GlassImport.swift */; };
+		A100F102 /* GlassController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200F102 /* GlassController.swift */; };
+		A100F103 /* GlassStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200F103 /* GlassStore.swift */; };
+		A100F104 /* GlassRoot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A200F104 /* GlassRoot.swift */; };
 		A1006A02 /* GOGGames.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2006A02 /* GOGGames.swift */; };
 		A1006A03 /* SwiftGOG/GOGAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2006A03 /* GOGAPI.swift */; };
 		A1006A04 /* SwiftGOG/GOGDownloader.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2006A04 /* GOGDownloader.swift */; };
@@ -302,6 +307,11 @@
 		A2007B04 /* ItchLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ItchLibrary.swift"; sourceTree = "<group>"; };
 		A2007B05 /* ItchGames.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ItchGames.swift"; sourceTree = "<group>"; };
 		A2006A01 /* GOGLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GOGLibrary.swift"; sourceTree = "<group>"; };
+		A200F100 /* GlassArchive.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassArchive.swift; sourceTree = "<group>"; };
+		A200F101 /* GlassImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassImport.swift; sourceTree = "<group>"; };
+		A200F102 /* GlassController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassController.swift; sourceTree = "<group>"; };
+		A200F103 /* GlassStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassStore.swift; sourceTree = "<group>"; };
+		A200F104 /* GlassRoot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassRoot.swift; sourceTree = "<group>"; };
 		A2006A02 /* GOGGames.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GOGGames.swift"; sourceTree = "<group>"; };
 		A2006A03 /* GOGAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SwiftGOG/GOGAPI.swift"; sourceTree = "<group>"; };
 		A2006A04 /* GOGDownloader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SwiftGOG/GOGDownloader.swift"; sourceTree = "<group>"; };
@@ -628,6 +638,11 @@
 				A2007B04 /* ItchLibrary.swift */,
 				A2007B05 /* ItchGames.swift */,
 				A2006A01 /* GOGLibrary.swift */,
+				A200F100 /* GlassArchive.swift */,
+				A200F101 /* GlassImport.swift */,
+				A200F102 /* GlassController.swift */,
+				A200F103 /* GlassStore.swift */,
+				A200F104 /* GlassRoot.swift */,
 				A2006A02 /* GOGGames.swift */,
 				A2006A03 /* GOGAPI.swift */,
 				A2006A04 /* GOGDownloader.swift */,
@@ -1099,6 +1114,11 @@
 				A1007B04 /* ItchLibrary.swift in Sources */,
 				A1007B05 /* ItchGames.swift in Sources */,
 				A1006A01 /* GOGLibrary.swift in Sources */,
+				A100F100 /* GlassArchive.swift in Sources */,
+				A100F101 /* GlassImport.swift in Sources */,
+				A100F102 /* GlassController.swift in Sources */,
+				A100F103 /* GlassStore.swift in Sources */,
+				A100F104 /* GlassRoot.swift in Sources */,
 				A1006A02 /* GOGGames.swift in Sources */,
 				A1006A03 /* SwiftGOG/GOGAPI.swift in Sources */,
 				A1006A04 /* SwiftGOG/GOGDownloader.swift in Sources */,

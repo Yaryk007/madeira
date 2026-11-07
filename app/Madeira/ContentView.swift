@@ -1323,6 +1323,9 @@ struct ContentView: View {
                 if library.enabled && library.current != nil {
                     sessionBody
                         .navigationBarHidden(true)
+                } else if library.enabled && GlassUI.enabled {
+                    GlassRootView(play: launchLibraryEntry, enableJIT: enableJIT,
+                                  startDock: { startDock($0, compactPool: $1) })
                 } else if library.enabled {
                     LibraryView(play: launchLibraryEntry, enableJIT: enableJIT,
                                 startDock: { startDock($0, compactPool: $1) })
