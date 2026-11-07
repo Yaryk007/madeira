@@ -5687,6 +5687,11 @@ struct LibraryHUD: View {
         .onAppear { model.saveCurrentProfile() }
         .onChange(of: model.menu) { _, open in
             LibraryController.shared.configure(enabled: model.enabled, ownsInput: open)
+            // The in-game menu's controls are reached with the Glass pointer (GlassController.swift).
+            if GlassUI.enabled {
+                if open { GlassPointer.shared.acquire(); GlassPointer.shared.onBack = { model.menu = false } }
+                else { GlassPointer.shared.release() }
+            }
             if !open { bindsPage = false; assistPage = false }
             if !open { model.saveCurrentProfile() }
             if open { eco = madeira_get_eco() != 0; fenceMode = FPSOverlayFenceMode.current }
