@@ -409,7 +409,7 @@ struct GlassRootView: View {
             Button("Unpack and free the archive", role: .destructive) { importer.answer(approve: true) }
             Button("Cancel", role: .cancel) { importer.answer(approve: false) }
         } message: {
-            Text("There isn't room for this RAR and the game at once, so Madeira will free the archive as it unpacks. Keep the app open. If it stops partway, the archive can't be used again and you'd need a new copy.")
+            Text("There isn't room for this RAR and the game at once, so Madeira will free the archive as it unpacks. Keep the app open. If it stops partway, the archive can't be used again and you'd need a new copy." + (pads.pads.isEmpty ? "" : (pads.family == .playStation ? "\n\n✕ continues, ○ cancels." : "\n\nA continues, B cancels.")))
         }
         .onAppear(perform: appeared)
         .onChange(of: scenePhase) { _, phase in
@@ -1174,6 +1174,15 @@ struct GlassRootView: View {
 
     private func handle(_ command: String) {
         guard sheet == nil, !picking, !onboarding.presented, opening == nil else { return }
+        // A system alert has no focus to move, so the pad answers it directly.
+        if importer.approval != nil {
+            if command == "accept" { importer.answer(approve: true) } else if command == "back" { importer.answer(approve: false) }
+            return
+        }
+        if model.error != nil {
+            if command == "accept" || command == "back" { model.error = nil }
+            return
+        }
         if overlay == .controllerTest { return }
         if let overlay { handleOverlay(overlay, command); return }
         switch command {

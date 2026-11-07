@@ -457,6 +457,7 @@ struct GlassControllerTest: View {
     }
 
     private func command(_ name: String) {
+        if GlassKeyboardModel.isOpen, name != "add" { return }
         switch name {
         case "accept": press()
         case "back": onBack?()
@@ -562,7 +563,9 @@ extension View {
 
 @MainActor final class GlassKeyboardModel: ObservableObject {
     static let toggle = Notification.Name("GlassKeyboardToggle")
-    @Published var open = false
+    /// While it is up the pad types, so the pointer leaves its buttons alone.
+    static var isOpen = false
+    @Published var open = false { didSet { Self.isOpen = open } }
 }
 
 /// Types into whatever has the focus, with the pad: the D-pad moves, accept types.

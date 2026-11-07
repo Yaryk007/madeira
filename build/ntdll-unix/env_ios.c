@@ -2083,9 +2083,10 @@ static void init_peb( RTL_USER_PROCESS_PARAMETERS *params, void *module )
         wow64_params = build_wow64_parameters( params );
         if (!wow64_params)
         {
-            /* Nothing 32-bit can start without them: end with a status the host reports. */
+            /* Nothing 32-bit can start without them. Pseudo-processes are threads of one Mach
+             * task, and this early only ending this boot thread is safe (ios_fatal_startup_error). */
             ERR( "ending the process: its 32-bit parameters could not be built\n" );
-            NtTerminateProcess( NtCurrentProcess(), STATUS_NO_MEMORY );
+            pthread_exit( NULL );
         }
 
         /* every 32-bit PEB field below is a GUEST address */
