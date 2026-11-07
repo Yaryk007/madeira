@@ -362,6 +362,9 @@ struct GlassRootView: View {
         paused ? "Paused" : "Downloading \(Int(fraction * 100))%"
     }
 
+    /// The prototype's 44-point side margin, whatever the notch's safe area says.
+    private let sidePadding: CGFloat = 44
+
     private var homeGames: [GlassGame] { Array(games.prefix(6)) }
     private var selected: GlassGame? {
         let list = games
@@ -374,18 +377,24 @@ struct GlassRootView: View {
 
     var body: some View {
         ZStack {
-            GlassBackdrop(game: selected)
+            GlassBackdrop(game: selected).blur(radius: tab == .home ? 0 : 16)
             if tab != .home {
-                Rectangle().fill(.black.opacity(0.6)).ignoresSafeArea().transition(.opacity)
+                Rectangle().fill(Color(red: 0.03, green: 0.03, blue: 0.043).opacity(0.66)).ignoresSafeArea().transition(.opacity)
             } else {
-                LinearGradient(colors: [.black.opacity(0.6), .clear], startPoint: .leading, endPoint: .init(x: 0.6, y: 0.5))
-                    .ignoresSafeArea().allowsHitTesting(false)
+                ZStack {
+                    LinearGradient(stops: [.init(color: .black.opacity(0.62), location: 0), .init(color: .clear, location: 0.62)],
+                                   startPoint: .leading, endPoint: .trailing)
+                    LinearGradient(stops: [.init(color: .black.opacity(0.6), location: 0), .init(color: .clear, location: 0.45)],
+                                   startPoint: .bottom, endPoint: .top)
+                }
+                .ignoresSafeArea().allowsHitTesting(false)
             }
             VStack(spacing: 8) {
-                topBar
-                page.frame(maxWidth: .infinity, maxHeight: .infinity)
+                topBar.padding(.horizontal, sidePadding)
+                page.frame(maxWidth: .infinity, maxHeight: .infinity).padding(.horizontal, sidePadding)
             }
-            .padding(.top, 8)
+            .padding(.top, 10)
+            .ignoresSafeArea(edges: [.horizontal, .bottom])
             VStack {
                 Spacer()
                 HStack { Spacer(); GlassHints(items: hints) }
@@ -394,6 +403,7 @@ struct GlassRootView: View {
             openingLayer
         }
         .preferredColorScheme(.dark)
+        .navigationBarHidden(true)
         .toolbar(.hidden, for: .navigationBar)
         .fullScreenCover(isPresented: $onboarding.presented) { OnboardingView() }
         .sheet(item: $sheet, onDismiss: { revision += 1; refreshStores() }) { sheetView($0) }
@@ -522,7 +532,7 @@ struct GlassRootView: View {
                     }
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 10) {
                     ScrollViewReader { reader in
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 14) {
@@ -531,7 +541,7 @@ struct GlassRootView: View {
                                     Text("All\ngames").font(.system(size: 13, weight: .semibold)).multilineTextAlignment(.center)
                                         .frame(width: 76, height: 114)
                                 }.glassSurface(radius: 12, interactive: true)
-                            }.padding(6).frame(height: 192)
+                            }.frame(height: 180)
                         }
                         .onChange(of: selectedID) { _, id in withAnimation { reader.scrollTo(id, anchor: .center) } }
                     }
@@ -650,10 +660,10 @@ struct GlassRootView: View {
                         Button(filters[index]) { libraryFilter = index; libraryFocus = 0 }
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(index == libraryFilter ? .black : .white)
-                            .padding(.horizontal, 14).frame(height: 38)
+                            .padding(.horizontal, 15).frame(height: 44)
                             .background { if index == libraryFilter { Capsule().fill(.white) } }
                     }
-                }.padding(3).glassSurface(radius: 22)
+                }.glassSurface(radius: 22)
                     .overlay { if libraryZone == 0 { GlassFocusRing(radius: 22) } }
                 Spacer()
                 Button("Import") { overlay = .importer; overlayFocus = 0 }.buttonStyle(GlassButtonStyle())
@@ -723,10 +733,10 @@ struct GlassRootView: View {
                         Button(kind.rawValue) { store = kind }
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(kind == store ? .black : .white)
-                            .padding(.horizontal, 16).frame(height: 38)
+                            .padding(.horizontal, 15).frame(height: 44)
                             .background { if kind == store { Capsule().fill(.white) } }
                     }
-                }.padding(3).glassSurface(radius: 22)
+                }.glassSurface(radius: 22)
                     .overlay { if storeFocus.shelf == -1 { GlassFocusRing(radius: 22) } }
                 if signedIn {
                     TextField("Search \(store.rawValue)", text: $storeQuery)
