@@ -4627,6 +4627,16 @@ struct TouchControlButton: View {
                     Image(systemName: g)
                         .font(.system(size: size.height * 0.40, weight: .semibold))
                         .foregroundStyle(.white.opacity(isDown ? 1.0 : 0.88))
+                } else if let face = GlassFaceButton(label: a.padFaceLabel) {
+                    // Madeira Glass: the pad's own names and colours, PlayStation shapes or Xbox letters.
+                    Group {
+                        if let symbol = face.symbol {
+                            Image(systemName: symbol).font(.system(size: size.height * 0.34, weight: .heavy))
+                        } else {
+                            Text(face.text).font(.system(size: size.height * 0.40, weight: .bold))
+                        }
+                    }
+                    .foregroundStyle(face.color.opacity(isDown ? 1.0 : 0.92))
                 } else {
                     Text(a.padFaceLabel)
                         .font(.system(size: size.height * (a.padFaceLabel.count > 2 ? 0.24 : 0.40), weight: .semibold))
@@ -4661,11 +4671,22 @@ struct TouchControlButton: View {
     }
 
     var body: some View {
+        controlBody
+            // Madeira Glass: every control gives under the finger.
+            .scaleEffect(isDown && !isStick ? 0.88 : 1)
+            .animation(.spring(response: 0.26, dampingFraction: 0.62), value: isDown)
+    }
+
+    @ViewBuilder private var controlBody: some View {
         ZStack {
             if control.action.isPadStick {
                 ZStack {
-                    Circle().fill(.white.opacity(isDown ? 0.55 : 0.25))
-                        .frame(width: diameter * 0.42, height: diameter * 0.42)
+                    Circle().strokeBorder(.white.opacity(0.22), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                        .padding(diameter * 0.12)
+                    Circle().fill(.white.opacity(isDown ? 0.55 : 0.32))
+                        .overlay(Circle().strokeBorder(LinearGradient(colors: [.white.opacity(0.6), .clear], startPoint: .top, endPoint: .bottom), lineWidth: 1))
+                        .shadow(color: .black.opacity(0.3), radius: 6, y: 4)
+                        .frame(width: diameter * 0.46, height: diameter * 0.46)
                         .offset(x: padVector.width * diameter * 0.29, y: padVector.height * diameter * 0.29)
                     Text(control.action.label).font(.caption).foregroundStyle(.white.opacity(0.8))
                 }
@@ -5094,5 +5115,29 @@ struct MappingPanel: View {
                     .fill(.white.opacity(on ? 0.36 : 0.12)))
         }
         .buttonStyle(.plain)
+    }
+}
+
+
+/// Madeira Glass: a face button's look for the controller in use.
+struct GlassFaceButton {
+    var text: String
+    var symbol: String?
+    var color: Color
+
+    @MainActor init?(label: String) {
+        let ps = GlassPads.shared.family == .playStation || GlassPads.shared.pads.isEmpty
+            && (UserDefaults.standard.string(forKey: "madeiraGlassPadLook") ?? "") == "playstation"
+        switch label.uppercased() {
+        case "A": self.init(text: "A", symbol: ps ? "xmark" : nil, color: ps ? Color(red: 0.55, green: 0.7, blue: 1) : Color(red: 0.45, green: 0.88, blue: 0.42))
+        case "B": self.init(text: "B", symbol: ps ? "circle" : nil, color: ps ? Color(red: 1, green: 0.48, blue: 0.48) : Color(red: 1, green: 0.42, blue: 0.4))
+        case "X": self.init(text: "X", symbol: ps ? "square" : nil, color: ps ? Color(red: 0.96, green: 0.6, blue: 0.85) : Color(red: 0.44, green: 0.66, blue: 1))
+        case "Y": self.init(text: "Y", symbol: ps ? "triangle" : nil, color: ps ? Color(red: 0.43, green: 0.9, blue: 0.75) : Color(red: 1, green: 0.85, blue: 0.3))
+        default: return nil
+        }
+    }
+
+    private init(text: String, symbol: String?, color: Color) {
+        self.text = text; self.symbol = symbol; self.color = color
     }
 }

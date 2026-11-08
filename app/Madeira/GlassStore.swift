@@ -58,7 +58,7 @@ enum GlassStoreAPI {
         return formatter.string(from: NSNumber(value: Double(cents) / 100)) ?? "Free"
     }
 
-    private static func json(_ url: URL) async throws -> [String: Any] {
+    static func json(_ url: URL) async throws -> [String: Any] {
         var request = URLRequest(url: url)
         request.timeoutInterval = 20
         let (data, _) = try await URLSession.shared.data(for: request)
@@ -139,6 +139,46 @@ enum GlassStoreAPI {
                                   page: URL(string: "https://store.epicgames.com/en-US/p/\(slug)")!)
         }
         return items.isEmpty ? [] : [GlassStoreShelf(title: "Free this week", items: items)]
+    }
+}
+
+/// A game's store page, read from the store's public API and drawn natively.
+struct GlassStoreDetails {
+    var description: String
+    var screenshots: [URL]
+    var facts: [(String, String)]
+}
+
+extension GlassStoreAPI {
+    static func details(_ item: GlassStoreItem) async -> GlassStoreDetails? {
+        switch item.store {
+        case .steam:
+            guard let root = try? await json(URL(string: "https://store.steampowered.com/api/appdetails?appids=\(item.key)&l=english")!),
+                  let entry = root[item.key] as? [String: Any], entry["success"] as? Bool == true,
+                  let d = entry["data"] as? [String: Any] else { return nil }
+            var facts: [(String, String)] = []
+            if let devs = d["developers"] as? [String], let first = devs.first { facts.append(("Developer", first)) }
+            if let date = (d["release_date"] as? [String: Any])?["date"] as? String { facts.append(("Released", date)) }
+            if let genres = d["genres"] as? [[String: Any]] {
+                let names = genres.compactMap { $0["description"] as? String }.prefix(3)
+                if !names.isEmpty { facts.append(("Genre", names.joined(separator: ", "))) }
+            }
+            let shots = (d["screenshots"] as? [[String: Any]] ?? []).compactMap { ($0["path_thumbnail"] as? String).flatMap(URL.init(string:)) }
+            return GlassStoreDetails(description: d["short_description"] as? String ?? "", screenshots: Array(shots.prefix(8)), facts: facts)
+        case .gog:
+            guard let root = try? await json(URL(string: "https://api.gog.com/products/\(item.key)?expand=description,screenshots")!) else { return nil }
+            let lead = ((root["description"] as? [String: Any])?["lead"] as? String ?? "")
+                .replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+            let shots = (root["screenshots"] as? [[String: Any]] ?? []).compactMap { shot -> URL? in
+                guard let template = shot["formatter_template_url"] as? String else { return nil }
+                return URL(string: template.replacingOccurrences(of: "{formatter}", with: "ggvgm"))
+            }
+            var facts: [(String, String)] = []
+            if let date = root["release_date"] as? String { facts.append(("Released", String(date.prefix(10)))) }
+            return GlassStoreDetails(description: lead, screenshots: Array(shots.prefix(8)), facts: facts)
+        case .epic:
+            return nil
+        }
     }
 }
 

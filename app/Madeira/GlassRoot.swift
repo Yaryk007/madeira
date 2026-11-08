@@ -18,15 +18,66 @@ enum GlassUI {
     }
 }
 
+/// Settings › Interface › Glass: the prototype's clear glass by default, with the earlier looks kept as choices.
+enum GlassStyle: String, CaseIterable {
+    case liquid = "Liquid Glass", current = "Current glass", frosted = "Frosted", black = "Black"
+    static let key = "madeiraGlassStyle"
+    static var chosen: GlassStyle { GlassStyle(rawValue: UserDefaults.standard.string(forKey: key) ?? "") ?? .liquid }
+}
+
 extension View {
-    /// Liquid Glass; a material before iOS 26.
+    /// Every Glass surface. Liquid Glass is clear glass with a lit top edge, as in the prototype; Current glass is the
+    /// regular system glass the first Glass builds used.
     @ViewBuilder func glassSurface(radius: CGFloat, interactive: Bool = false, tint: Color? = nil) -> some View {
-        if #available(iOS 26.0, *) {
-            let glass = tint.map { Glass.regular.tint($0) } ?? Glass.regular
-            self.glassEffect(glass.interactive(interactive), in: RoundedRectangle(cornerRadius: radius, style: .continuous))
-        } else {
-            self.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        switch GlassStyle.chosen {
+        case .black:
+            self.background(Color.black, in: shape).overlay(shape.stroke(Color(white: 0.2), lineWidth: 1))
+        case .frosted:
+            self.background(Color(red: 0.08, green: 0.08, blue: 0.1).opacity(0.6), in: shape)
+                .background(.ultraThinMaterial, in: shape)
+                .overlay(shape.stroke(Color.white.opacity(0.16), lineWidth: 1))
+                .shadow(color: .black.opacity(0.28), radius: 12, y: 8)
+        case .liquid, .current:
+            if #available(iOS 26.0, *) {
+                let base = GlassStyle.chosen == .liquid ? Glass.clear : Glass.regular
+                let glass = tint.map { base.tint($0) } ?? base
+                self.glassEffect(glass.interactive(interactive), in: shape)
+                    .overlay {
+                        if GlassStyle.chosen == .liquid {
+                            shape.stroke(LinearGradient(colors: [.white.opacity(0.5), .white.opacity(0.08)],
+                                                        startPoint: .top, endPoint: .bottom), lineWidth: 1)
+                                .allowsHitTesting(false)
+                        }
+                    }
+            } else {
+                self.background(.ultraThinMaterial, in: shape)
+            }
         }
+    }
+}
+
+/// The PS5's shine: a soft band of light sweeps across the selected cover every couple of seconds.
+struct GlassShine: View {
+    var radius: CGFloat = 12
+    var body: some View {
+        TimelineView(.animation) { context in
+            GeometryReader { geo in
+                let t = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 2.4) / 2.4
+                let q = min(1, t / 0.55)
+                let eased = q < 0.5 ? 2 * q * q : 1 - pow(-2 * q + 2, 2) / 2
+                let x = (-0.7 + 2 * eased) * geo.size.width
+                LinearGradient(stops: [.init(color: .white.opacity(0), location: 0), .init(color: .white.opacity(0.07), location: 0.3),
+                                       .init(color: .white.opacity(0.4), location: 0.5), .init(color: .white.opacity(0.07), location: 0.7),
+                                       .init(color: .white.opacity(0), location: 1)], startPoint: .leading, endPoint: .trailing)
+                    .frame(width: geo.size.width * 0.5, height: geo.size.height * 1.4)
+                    .rotationEffect(.degrees(14))
+                    .offset(x: x, y: -geo.size.height * 0.2)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(.white.opacity(0.14), lineWidth: 1))
+        .allowsHitTesting(false)
     }
 }
 
@@ -273,6 +324,7 @@ struct GlassRootView: View {
     @State private var storeLoading = false
     @State private var storeFocus = (shelf: -1, item: 0)
     @State private var storeItem: GlassStoreItem?
+    @State private var storeDetails: GlassStoreDetails?
     @State private var storeQuery = ""
     @State private var searchText = ""
     @State private var searchFocus = 0
@@ -562,6 +614,8 @@ struct GlassRootView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .opacity(on ? 1 : 0.8)
                 .shadow(color: .black.opacity(on ? 0.45 : 0), radius: 15, y: 10)
+                .overlay { if on { GlassShine() } }
+                .shadow(color: .white.opacity(on ? 0.14 : 0), radius: 18)
                 .overlay { if on && homeZone == 1 { GlassFocusRing(radius: 12) } }
                 .overlay(alignment: .bottom) {
                     if let progress = game.progress {
@@ -804,7 +858,7 @@ struct GlassRootView: View {
     }
 
     private func storeTile(_ item: GlassStoreItem, focused: Bool) -> some View {
-        Button { storeItem = item; overlay = .storeItem(item.id); overlayFocus = 0 } label: {
+        Button { openStoreItem(item) } label: {
             VStack(alignment: .leading, spacing: 3) {
                 AsyncImage(url: item.image) { image in image.resizable().scaledToFill() } placeholder: { Color.white.opacity(0.1) }
                     .frame(width: 96, height: 144).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -813,6 +867,15 @@ struct GlassRootView: View {
                 Text(item.price).font(.system(size: 12)).foregroundStyle(.white.opacity(0.8))
             }.frame(width: 96)
         }.buttonStyle(.plain)
+    }
+
+    private func openStoreItem(_ item: GlassStoreItem) {
+        storeItem = item; storeDetails = nil
+        overlay = .storeItem(item.id); overlayFocus = 0
+        Task {
+            let details = await GlassStoreAPI.details(item)
+            if storeItem?.id == item.id { storeDetails = details }
+        }
     }
 
     private func owned(_ item: GlassStoreItem) -> GlassGame? {
@@ -892,6 +955,11 @@ struct GlassRootView: View {
         default:
             return [
                 GlassRow(title: "All settings", detail: "Madeira's full settings, including graphics and diagnostics.", kind: .action(nil) { sheet = .classicSettings }),
+                GlassRow(title: "Glass", detail: "Current glass is the look from the first Glass builds.",
+                         kind: .choice(GlassStyle.allCases.map(\.rawValue), GlassStyle.allCases.firstIndex(of: GlassStyle.chosen) ?? 0) { index in
+                    UserDefaults.standard.set(GlassStyle.allCases[index].rawValue, forKey: GlassStyle.key)
+                    revision += 1
+                }),
                 GlassRow(title: "Glass interface", detail: "Off returns to the classic library at the next start.", kind: .toggle(GlassUI.enabled) { on in
                     UserDefaults.standard.set(on, forKey: GlassUI.key)
                     revision += 1
@@ -1135,9 +1203,9 @@ struct GlassRootView: View {
             }))
         } else {
             let label = item.price == "Free" ? "Add to library" : "Buy for \(item.price)"
-            list.append((label, { let page = item.page; overlay = nil; sheet = .web(item.name, page) }))
+            // Buying needs the store's own checkout: none of the three lets an app take a payment.
+            list.append((label, { let page = item.page; overlay = nil; sheet = .web("Checkout · " + item.store.rawValue, page) }))
         }
-        list.append(("Store page", { let page = item.page; overlay = nil; sheet = .web(item.name, page) }))
         return list
     }
 
@@ -1149,9 +1217,37 @@ struct GlassRootView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(item.name).font(.system(size: 24, weight: .bold)).lineLimit(3)
                 Text("\(item.store.rawValue) · \(item.price)").font(.system(size: 14)).foregroundStyle(.white.opacity(0.82))
-                Text("Check how well a game runs before you buy: not every Windows game works in Madeira.")
-                    .font(.system(size: 12)).foregroundStyle(.white.opacity(0.72))
-                Spacer()
+                if let details = storeDetails {
+                    ScrollView(showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            if !details.description.isEmpty {
+                                Text(details.description).font(.system(size: 13)).foregroundStyle(.white.opacity(0.86))
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            ForEach(details.facts.indices, id: \.self) { index in
+                                HStack {
+                                    Text(details.facts[index].0).foregroundStyle(.white.opacity(0.7))
+                                    Spacer()
+                                    Text(details.facts[index].1).fontWeight(.medium)
+                                }.font(.system(size: 12))
+                            }
+                            if !details.screenshots.isEmpty {
+                                ScrollView(.horizontal, showsIndicators: false) {
+                                    HStack(spacing: 8) {
+                                        ForEach(details.screenshots, id: \.self) { url in
+                                            AsyncImage(url: url) { image in image.resizable().scaledToFill() } placeholder: { Color.white.opacity(0.08) }
+                                                .frame(width: 150, height: 84).clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Text("Check how well a game runs before you buy: not every Windows game works in Madeira.")
+                        .font(.system(size: 12)).foregroundStyle(.white.opacity(0.72))
+                    Spacer()
+                }
                 HStack(spacing: 8) {
                     ForEach(actions.indices, id: \.self) { index in
                         Button(actions[index].0) { actions[index].1() }
@@ -1302,7 +1398,7 @@ struct GlassRootView: View {
         case "accept":
             if row.items.indices.contains(storeFocus.item) {
                 let item = row.items[storeFocus.item]
-                storeItem = item; overlay = .storeItem(item.id); overlayFocus = 0
+                openStoreItem(item)
             }
         case "action": sheet = .web(store.rawValue, store.home)
         case "back": storeFocus = (-1, 0)
