@@ -5624,11 +5624,16 @@ struct LibraryHUD: View {
     /// The Session menu's Controller binds page (keyboard-and-mouse mode).
     @State private var bindsPage = false
     @State private var assistPage = false
+    /// Madeira Glass: the in-game drawer's tab (Controls, Display, Pointer, System).
+    @State private var glassMenuTab = 0
+    @State private var glassLaunchShown = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .topLeading) {
-                if model.startingScreen, let entry = model.startingEntry {
+                if model.startingScreen, let entry = model.startingEntry, GlassUI.enabled, !curtain.covering {
+                    glassLaunch(entry, geometry: geo)
+                } else if model.startingScreen, let entry = model.startingEntry {
                     // An opaque base first, so the desktop never shows through while the
                     // backdrop fades in; the backdrop settles from a slight zoom and the
                     // screen's parts arrive one after another (LaunchEntrance).
@@ -5648,7 +5653,12 @@ struct LibraryHUD: View {
                 if model.liveLogs && !model.startingScreen { LibraryLiveLogs().frame(maxWidth: 550, maxHeight: 140).padding(.top, Self.topInset(geo) + 60).padding(.horizontal, 12).allowsHitTesting(false) }
                 if !model.sessionMessage.isEmpty && !model.startingScreen { Text(model.sessionMessage).font(.caption).padding(10).background(.regularMaterial, in: Capsule()).frame(maxWidth: .infinity).padding(.top, Self.topInset(geo) + 12).allowsHitTesting(false) }
                 if !model.startingScreen { LibraryFloatingItem(isMenu: true, viewport: geo.size, insets: geo.safeAreaInsets) }
-                if model.menu {
+                if model.menu && GlassUI.enabled {
+                    Button { model.menu = false } label: { Color.black.opacity(0.38).ignoresSafeArea() }
+                        .buttonStyle(.plain).accessibilityLabel("Resume game")
+                        .transition(.opacity.animation(GlassMotion.css(0.2)))
+                    glassMenu(geometry: geo).transition(.glassSlide)
+                } else if model.menu {
                     Color.black.opacity(SessionMenuBackground.blur ? 0.3 : 0.5).ignoresSafeArea().onTapGesture { model.menu = false }.transition(.opacity)
                     (bindsPage ? AnyView(bindsMenu) : assistPage ? AnyView(assistMenu) : AnyView(menu))
                         .frame(width: min(460, geo.size.width - 32), height: min(650, geo.size.height - geo.safeAreaInsets.top - geo.safeAreaInsets.bottom - 24))
@@ -5660,7 +5670,7 @@ struct LibraryHUD: View {
                         .transition(reduceMotion ? .opacity : .scale(scale: 0.94).combined(with: .opacity))
                 }
             }
-            .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.85), value: model.menu)
+            .animation(GlassUI.enabled ? GlassMotion.spring(0.44) : (reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.85)), value: model.menu)
             .onAppear {
                 // Under the Play button's flood (LaunchCurtain): once laid out, hand the
                 // cover's frame over and let the flood gather into it. Otherwise the
@@ -5699,6 +5709,9 @@ struct LibraryHUD: View {
         .onReceive(LibraryController.shared.commands) { command in
             if command == "menu" { if model.menu { model.menu = false } else { model.showMenu() } }
             else if command == "back", model.menu { model.menu = false }
+            else if GlassUI.enabled, model.menu, command == "tabLeft" || command == "tabRight" {
+                glassMenuTab = (glassMenuTab + (command == "tabLeft" ? 3 : 1)) % 4
+            }
         }
     }
     /// Landscape: the cover large on the left, the title, status and controls beside it
@@ -7045,5 +7058,241 @@ private struct SmartPunctuationOff: UIViewRepresentable {
 extension View {
     func smartPunctuationOff() -> some View {
         background(SmartPunctuationOff().frame(width: 0, height: 0))
+    }
+}
+
+// MARK: - Madeira Glass in a session
+
+/// With the Glass interface on, the session's starting screen and in-game menu are the
+/// design prototype's (GlassOS.swift): the game's title over its blurred art with what the
+/// start is doing and a progress track, and a drawer from the left with four tabs.
+extension LibraryHUD {
+    func glassLaunch(_ entry: LibraryEntry, geometry geo: GeometryProxy) -> some View {
+        ZStack {
+            GlassOS.night.ignoresSafeArea()
+            launchBackdrop(entry).ignoresSafeArea()
+            Rectangle().fill(GlassOS.night.opacity(0.5)).background(.ultraThinMaterial.opacity(0.75)).ignoresSafeArea()
+            TimelineView(.periodic(from: .now, by: 0.25)) { context in
+                let elapsed = context.date.timeIntervalSince(model.startingSince)
+                let status = glassLaunchStatus(elapsed)
+                VStack(spacing: 0) {
+                    Text(dockStart.failure == nil ? entry.title : L("Madeira Dock stopped"))
+                        .font(.system(size: 30, weight: .bold)).tracking(-0.5).lineLimit(2).multilineTextAlignment(.center)
+                    Text(status).font(.system(size: 14)).foregroundStyle(.white.opacity(0.9)).multilineTextAlignment(.center)
+                        .frame(maxWidth: 440).padding(.top, 6)
+                        .contentTransition(.opacity).animation(GlassMotion.css(0.3), value: status)
+                    if dockStart.active, dockStart.failure == nil, let note = DockInstallers.note {
+                        Text(note).font(.system(size: 12)).foregroundStyle(.white.opacity(0.65)).multilineTextAlignment(.center)
+                            .frame(maxWidth: 420).padding(.top, 4)
+                    }
+                    if dockStart.failure == nil {
+                        GlassTrack(value: glassLaunchProgress(elapsed)).frame(width: 260).padding(.top, 18)
+                    }
+                    HStack(spacing: 10) {
+                        if model.current != nil {
+                            Button(dockStart.failure == nil ? L("Cancel") : L("Close session")) { model.requestQuit() }
+                                .buttonStyle(GlassButtonStyle())
+                        }
+                        Button { model.toggleLaunchLogs() } label: {
+                            Image(systemName: "text.alignleft").font(.system(size: 16, weight: .semibold)).frame(width: 44, height: 44)
+                                .background { if model.launchLogs { Circle().fill(.white.opacity(0.25)) } }
+                                .contentShape(Circle())
+                        }
+                        .buttonStyle(GlassPressStyle(scale: 0.92)).glassSurface(radius: 22, interactive: true)
+                        .accessibilityLabel(model.launchLogs ? L("Hide live log") : L("Show live log"))
+                        if dockStart.holding {
+                            Button(L("Show desktop")) { dockStart.showDesktop(model) }.buttonStyle(GlassButtonStyle())
+                        }
+                        if model.launchSlow && !dockStart.holding {
+                            Button(L("Show game view")) { model.showGameView(reason: "button") }.buttonStyle(GlassButtonStyle())
+                        }
+                    }
+                    .padding(.top, 22)
+                    if model.launchLogs {
+                        LibraryLiveLogs().frame(maxWidth: 520).frame(height: min(120, geo.size.height * 0.3)).padding(.top, 12)
+                            .transition(.opacity)
+                    }
+                }
+                .foregroundStyle(.white).padding(.horizontal, 40)
+                .frame(width: geo.size.width, height: geo.size.height)
+            }
+            .opacity(glassLaunchShown ? 1 : 0).offset(y: glassLaunchShown ? 0 : 8)
+        }
+        .transition(.opacity.animation(GlassMotion.css(0.3)))
+        .onAppear { withAnimation(GlassMotion.ease(0.36)) { glassLaunchShown = true } }
+        .onDisappear { glassLaunchShown = false }
+    }
+
+    private func glassLaunchStatus(_ elapsed: Double) -> String {
+        if let failure = dockStart.failure { return failure }
+        if dockStart.active { return dockStatus }
+        if let entry = model.preparing { return model.startingJIT == entry.id ? L("Preparing JIT") : L("Getting ready") }
+        if model.launchSlow { return L("Still loading. Big games take a while the first time.") }
+        return elapsed < 6 ? L("Starting Windows session") : L("Loading game")
+    }
+
+    /// How far along the start looks: it eases toward the end and never claims to be done,
+    /// since the game itself decides when it first draws.
+    private func glassLaunchProgress(_ elapsed: Double) -> Double {
+        let eased = 0.95 * (1 - exp(-elapsed / 14))
+        if model.preparing != nil { return min(0.33, eased) }
+        return max(0.35, eased)
+    }
+
+    func glassMenu(geometry geo: GeometryProxy) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if bindsPage || assistPage {
+                HStack {
+                    Button { bindsPage = false; assistPage = false } label: {
+                        Label(L("Back"), systemImage: "chevron.left").font(.system(size: 15, weight: .semibold)).frame(minHeight: 44)
+                    }.buttonStyle(.plain)
+                    Spacer()
+                }
+                (bindsPage ? AnyView(bindsMenu) : AnyView(assistMenu))
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(model.activeEntry?.title ?? L("Game")).font(.system(size: 17, weight: .bold)).lineLimit(1).frame(height: 22)
+                    Text(L("Playing")).font(.system(size: 12)).foregroundStyle(.white.opacity(0.78)).frame(height: 16)
+                }
+                .padding(.horizontal, 4)
+                GlassSegment(options: [L("Controls"), L("Display"), L("Pointer"), L("System")], selected: glassMenuTab, fill: true, padding: 4) {
+                    glassMenuTab = $0
+                }
+                .padding(.top, 8)
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        if glassMenuTab == 2 { GlassSessionPointerRows() } else { GlassRowList(rows: glassMenuRows) }
+                    }
+                    .padding(.horizontal, 4)
+                    .id(glassMenuTab).transition(.glassPage)
+                }
+                .padding(.top, 4)
+                HStack(spacing: 8) {
+                    Button(L("Resume")) { model.menu = false }.buttonStyle(GlassButtonStyle(primary: true, wide: true))
+                    Button(L("Keyboard")) { model.menu = false; LibraryKeyboard.show() }.buttonStyle(GlassButtonStyle(tinted: true, wide: true))
+                    Button(L("Exit game")) { model.requestQuit() }.buttonStyle(GlassButtonStyle(tinted: true, wide: true))
+                }
+                .padding(.top, 6)
+            }
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 14).padding(.vertical, 12)
+        .frame(width: min(346, geo.size.width - 20))
+        .frame(maxHeight: .infinity)
+        .glassSurface(radius: 30)
+        .padding(.leading, max(10, geo.safeAreaInsets.leading)).padding(.vertical, 10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .preferredColorScheme(.dark)
+    }
+
+    private var glassMenuRows: [GlassRow] {
+        switch glassMenuTab {
+        case 0:
+            var rows = [GlassRow(title: L("Show touch controls"), kind: .toggle(controls.visible) { controls.visible = $0 })]
+            if controls.visible && ControlPresetsModel.enabled {
+                rows.append(GlassRow(title: L("Layout"), kind: .custom(AnyView(ControlLayoutMenu(style: .row) { openedEditor in
+                    model.saveCurrentProfile()
+                    if openedEditor { model.menu = false }
+                }))))
+            }
+            rows.append(GlassRow(title: L("Opacity"), kind: .slider(model.opacity, 0.15...1) { model.opacity = $0 }))
+            rows.append(GlassRow(title: L("Size"), kind: .slider(controls.sizeScale, 0.5...2) { controls.sizeScale = $0 }))
+            let styles = TouchControlStyle.styles
+            rows.append(GlassRow(title: L("Button style"), kind: .choice(styles.map(\.name), styles.firstIndex { $0.id == controlStyle } ?? 0) {
+                controlStyle = styles[$0].id
+            }))
+            rows.append(GlassRow(title: L("Edit controls"), kind: .action(nil) { controls.visible = true; controls.editing = true; model.menu = false }))
+            if GamepadInput.keyboardMouseAvailable {
+                let modes: [String?] = [nil, "dinput", "keys"]
+                rows.append(GlassRow(title: L("Controller"), detail: model.controllerMode == "dinput" ? L("XInput and DirectInput applies to the next launch.") : nil,
+                                     kind: .choice([L("Game's own"), L("XInput + DInput"), L("Keys & mouse")], modes.firstIndex(of: model.controllerMode) ?? 0) {
+                    model.controllerMode = modes[$0]; model.saveCurrentProfile()
+                }))
+                if model.controllerMode == "keys" {
+                    rows.append(GlassRow(title: L("Controller binds"), kind: .action(nil) { bindsPage = true }))
+                }
+            }
+            if GamepadInput.enabled {
+                rows.append(GlassRow(title: L("Gyro aim & turbo"), kind: .action(nil) { assistPage = true }))
+            }
+            return rows
+        case 1:
+            var tags: [Int] = []
+            var names: [String] = []
+            if ProMotionIntent.has30Cap || model.fpsMode == 3 { tags.append(3); names.append("30") }
+            if ProMotionIntent.has40Cap || model.fpsMode == 4 { tags.append(4); names.append("40") }
+            tags += [1, 0, 2]; names += ["60", L("Max"), L("Uncapped")]
+            var rows = [GlassRow(title: L("Frame rate"), kind: .choice(names, tags.firstIndex(of: model.fpsMode) ?? 0) { model.setFPS(tags[$0]) })]
+            rows.append(GlassRow(title: L("Show overlay"), kind: .toggle(model.performance) { model.performance = $0 }))
+            if model.performance {
+                for field in OverlayStyle.fields {
+                    rows.append(GlassRow(title: field, kind: .toggle(model.overlayFields.contains(field)) { on in
+                        model.overlayFields.removeAll { $0 == field }
+                        if on { model.overlayFields.append(field) }
+                    }))
+                }
+            }
+            if sessionTools {
+                let modes = DisplayMode.allCases
+                rows.append(GlassRow(title: L("Aspect & scaling"), kind: .choice(modes.map(\.label), modes.firstIndex(of: model.displayMode) ?? 0) {
+                    model.displayMode = modes[$0]
+                }))
+            }
+            return rows
+        default:
+            var rows = [GlassRow(title: L("Eco mode"), detail: L("Runs the game's threads at a low priority, on the efficiency cores: cooler and slower."),
+                                 kind: .toggle(eco) { on in eco = on; madeira_set_eco(on ? 1 : 0) })]
+            if let appID = model.activeEntry?.steamAppID, SteamOwnedLibrary.cloudQuitEnabled {
+                rows.append(GlassRow(title: L("Steam Cloud"), kind: .custom(AnyView(SteamCloudQuitRow(appID: appID)))))
+            }
+            if sessionTools && sessionDiagnostics {
+                rows.append(GlassRow(title: L("Capture the next frame"), kind: .action(nil) {
+                    model.menu = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                        madeira_capture_request(1)
+                        LogStore.shared.log("[capture] frame capture requested from the in-game menu")
+                    }
+                }))
+                let fences = [1, 6, 5, 0]
+                rows.append(GlassRow(title: L("GPU sync"), kind: .choice(["F1", "F6", "F5", "F0"], fences.firstIndex(of: fenceMode) ?? 0) { index in
+                    let mode = fences[index]
+                    fenceMode = mode; FPSOverlayFenceMode.current = mode
+                    madeira_set_fence_mode(Int32(mode == 0 ? 7 : mode))
+                }))
+            }
+            if model.dockGameEnded {
+                rows.append(GlassRow(title: L("Close Madeira"), detail: L("The game and Steam have closed, and Steam has saved. Open Madeira again to play."),
+                                     kind: .action(nil) { LogStore.shared.log("[frontend] closing Madeira after the Dock game ended"); exit(0) }))
+            } else if model.forceCloseOffered {
+                rows.append(GlassRow(title: L("Force close Madeira"), detail: L("The game did not respond to Exit game. Unsaved progress is lost."),
+                                     kind: .action(nil) {
+                    LogStore.shared.log("[frontend] force close: the program ignored the close request; closing Madeira", level: .error)
+                    exit(0)
+                }))
+            }
+            return rows
+        }
+    }
+}
+
+/// The in-game drawer's Pointer tab, watching the input settings so the choice redraws.
+struct GlassSessionPointerRows: View {
+    @ObservedObject private var input = InputSettings.shared
+    var body: some View {
+        let mode = input.touchMode ? 2 : (input.relative ? 1 : 0)
+        var rows = [GlassRow(title: L("Pointer"),
+                             detail: input.touchMode ? L("Tap to position and click. Hold and move to drag. Two fingers: right click or scroll.")
+                                : (input.relative ? L("Drag to send relative mouse movement for mouse-look. Tap to click.") : L("Drag the pointer like a trackpad. Tap to click.")),
+                             kind: .choice([L("Absolute"), L("Relative"), L("Touch")], mode) { index in
+            input.touchMode = index == 2; input.relative = index == 1
+            fputs("[frontend-pointer] mode=\(["absolute", "relative", "touch"][index])\n", stderr)
+        }),
+        GlassRow(title: L("Sensitivity"), kind: .slider(input.relative ? input.sensRel : input.sensAbs, 0.1...8) { value in
+            if input.relative { input.sensRel = value } else { input.sensAbs = value }
+        })]
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            rows.append(GlassRow(title: L("Using a mouse?"), detail: L("Turn on AssistiveTouch (Settings › Accessibility › Touch), then reopen Madeira."), kind: .info("")))
+        }
+        return GlassRowList(rows: rows)
     }
 }

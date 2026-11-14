@@ -104,7 +104,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid #fff; outline-off
 .sw.on::before { background: var(--accent); }
 .sw.on .knob { transform: translateX(28px); }
 
-.side { display: block; width: 100%; height: 44px; padding: 0 14px; border-radius: 16px; text-align: left; font-size: 14px; font-weight: 600; color: rgba(255, 255, 255, 0.86); box-sizing: border-box; transition: background 0.18s ease, color 0.18s ease; }
+.side { display: block; width: 100%; height: 38px; padding: 0 14px; border-radius: 13px; text-align: left; font-size: 14px; font-weight: 600; color: rgba(255, 255, 255, 0.86); box-sizing: border-box; transition: background 0.18s ease, color 0.18s ease; }
 .side.on { background: #fff; color: #101014; }
 
 .track { height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.2); overflow: hidden; }
@@ -135,6 +135,59 @@ button:focus-visible, input:focus-visible { outline: 2px solid #fff; outline-off
 .scroll { overflow-y: auto; scrollbar-width: none; }
 .scroll::-webkit-scrollbar { display: none; }
 
+/* Console OS chrome: focus root, shoulder chips, button hints, status cluster, boot, profiles, quick menu. */
+.osroot:focus { outline: none; }
+.shchip { display: flex; align-items: center; justify-content: center; width: 36px; height: 44px; }
+.shchip span { display: flex; align-items: center; justify-content: center; width: 32px; height: 22px; border-radius: 7px; border: 1px solid rgba(255, 255, 255, 0.45); font-size: 11px; font-weight: 700; color: rgba(255, 255, 255, 0.9); box-sizing: border-box; transition: background 0.15s ease, color 0.15s ease; }
+.shchip:active span { background: #fff; color: #101014; }
+.glyph { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 5px; border-radius: 11px; background: rgba(255, 255, 255, 0.16); font-size: 12px; font-weight: 700; box-sizing: border-box; }
+.hints { position: absolute; right: 44px; bottom: 12px; height: 24px; display: flex; align-items: center; gap: 18px; font-size: 12px; font-weight: 600; color: rgba(255, 255, 255, 0.9); text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6); }
+.hints > span { display: flex; align-items: center; gap: 7px; }
+.avbtn { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; }
+.av { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 16px; font-size: 14px; font-weight: 700; color: #fff; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85); }
+.clock { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; min-width: 44px; text-align: right; }
+/* Boot: emblem draws itself, light blooms behind it, the wordmark tracks in, then the whole screen fades to the picker. */
+.boot { position: absolute; inset: 0; z-index: 20; width: 100%; height: 100%; overflow: hidden; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.boot.out { animation: bootout 0.5s ease forwards; }
+.bootglow { position: absolute; left: 50%; top: 50%; width: 460px; height: 460px; margin: -250px 0 0 -230px; border-radius: 50%; pointer-events: none; background: radial-gradient(circle, color-mix(in srgb, var(--accent) 34%, transparent) 0%, color-mix(in srgb, var(--accent) 10%, transparent) 38%, transparent 66%); animation: bootglow 2.4s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.bootlogo { position: relative; filter: drop-shadow(0 0 14px rgba(255, 255, 255, 0.45)); animation: bootlogo 2.2s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.draw { stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 0.9s cubic-bezier(0.65, 0, 0.35, 1) 0.1s forwards; }
+.draw.d2 { animation-duration: 0.7s; animation-delay: 0.55s; }
+.bootword { position: relative; margin: 22px -9px 0 0; font-size: 19px; font-weight: 600; letter-spacing: 9px; color: transparent; background: linear-gradient(100deg, rgba(255, 255, 255, 0.78) 42%, #fff 50%, rgba(255, 255, 255, 0.78) 58%); background-size: 300% 100%; background-position: 100% 0; -webkit-background-clip: text; background-clip: text; animation: track 1.1s cubic-bezier(0.16, 1, 0.3, 1) 0.6s both, sweep 1.4s ease-in-out 1.2s both; }
+.bootsub { position: relative; margin-top: 8px; font-size: 12px; font-weight: 500; letter-spacing: 0.4px; color: rgba(255, 255, 255, 0.62); animation: fade 0.8s ease 1.2s both; }
+.bootspin { position: absolute; right: 44px; bottom: 24px; width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.22); border-top-color: #fff; box-sizing: border-box; animation: fade 0.4s ease 0.9s both, spin 0.9s linear infinite; }
+.profile { display: flex; flex-direction: column; align-items: center; gap: 10px; font-size: 14px; font-weight: 600; }
+.profile .av { width: 76px; height: 76px; border-radius: 38px; font-size: 30px; box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); transition: transform 0.3s var(--spring), box-shadow 0.2s ease; }
+.profile:hover .av, .profile:focus-visible .av { transform: scale(1.08); box-shadow: 0 0 0 3px #fff, 0 10px 30px rgba(0, 0, 0, 0.5); }
+.qtile { display: flex; flex-direction: column; justify-content: center; gap: 3px; height: 64px; padding: 0 12px; border-radius: 16px; background: rgba(255, 255, 255, 0.1); text-align: left; box-sizing: border-box; transition: background 0.15s ease, transform 0.15s ease; }
+.qtile:hover { background: rgba(255, 255, 255, 0.18); }
+.qtile:active { transform: scale(0.96); }
+.qlabel { font-size: 12px; color: rgba(255, 255, 255, 0.78); }
+.qvalue { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.s-black .qtile, .s-black .shchip span { border-radius: 4px !important; }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+@keyframes bootglow {
+  0% { opacity: 0; transform: scale(0.55); }
+  55% { opacity: 1; transform: scale(1.05); }
+  100% { opacity: 0.75; transform: scale(1); }
+}
+@keyframes bootlogo {
+  0% { transform: scale(0.92); }
+  60%, 100% { transform: scale(1); }
+}
+@keyframes track {
+  from { opacity: 0; letter-spacing: 20px; filter: blur(6px); }
+  to { opacity: 1; letter-spacing: 9px; filter: blur(0); }
+}
+@keyframes sweep {
+  from { background-position: 100% 0; }
+  to { background-position: 0 0; }
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes bootout {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
 @keyframes shine {
   0% { left: -70%; }
   55%, 100% { left: 130%; }
@@ -172,12 +225,13 @@ button:focus-visible, input:focus-visible { outline: 2px solid #fff; outline-off
   to { opacity: 1; transform: translateX(0); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .sheet, .drawer, .page, .shade, .cover.on, .cover.was, .infoin, .shine::before, .toast { animation: none; }
+  .sheet, .drawer, .page, .shade, .cover.on, .cover.was, .infoin, .shine::before, .toast, .bootglow, .bootlogo, .draw, .bootword, .bootsub { animation: none; }
+  .draw { stroke-dashoffset: 0; }
 }
 </style>
 </helmet>
 
-<div class="{{surfaceCls}}" style="position: relative; width: 844px; height: 390px; overflow: hidden; background: #08080b; color: #fff; font-family: -apple-system, 'SF Pro Text', Inter, system-ui, sans-serif; --accent: {{accent}}; --spring: linear(0, 0.18 8%, 0.52 18%, 0.82 30%, 1.02 42%, 1.06 52%, 1.04 64%, 1.01 78%, 1); --ease: cubic-bezier(0.16, 1, 0.3, 1)">
+<div class="{{surfaceCls}}" tabIndex="0" onKeyDown="{{onKey}}" style="position: relative; width: 844px; height: 390px; overflow: hidden; background: #08080b; color: #fff; font-family: -apple-system, 'SF Pro Text', Inter, system-ui, sans-serif; --accent: {{accent}}; --spring: linear(0, 0.18 8%, 0.52 18%, 0.82 30%, 1.02 42%, 1.06 52%, 1.04 64%, 1.01 78%, 1); --ease: cubic-bezier(0.16, 1, 0.3, 1)">
 
   <sc-for list="{{games}}" as="g" hint-placeholder-count="6">
     <img class="{{g.bgCls}}" src="{{g.hero}}" alt="" aria-hidden="true">
@@ -190,14 +244,18 @@ button:focus-visible, input:focus-visible { outline: 2px solid #fff; outline-off
     <div class="{{dimCls}}"></div>
 
     <div style="position: absolute; left: 44px; right: 44px; top: 10px; height: 44px; display: flex; align-items: center; justify-content: space-between">
-      <div style="width: 120px; font-size: 20px; font-weight: 700; letter-spacing: -0.3px">Madeira</div>
-      <nav class="surf" aria-label="Main" style="position: relative; display: flex; height: 44px; padding: 0 0 0 3px; border-radius: 22px; padding-right: 3px">
-        <div class="pill" style="transform: translateX({{tabX}}px)"></div>
-        <sc-for list="{{tabs}}" as="t" hint-placeholder-count="4">
-          <button class="{{t.cls}}" onClick="{{t.pick}}">{{t.label}}</button>
-        </sc-for>
-      </nav>
-      <div style="width: 120px; display: flex; justify-content: flex-end; gap: 8px">
+      <div style="width: 90px; font-size: 18px; font-weight: 700; letter-spacing: -0.3px">Madeira</div>
+      <div style="display: flex; align-items: center; gap: 4px">
+        <button class="shchip" aria-label="Previous tab" onClick="{{prevTab}}"><span>{{glyph.l1}}</span></button>
+        <nav class="surf" aria-label="Main" style="position: relative; display: flex; height: 44px; padding: 0 0 0 3px; border-radius: 22px; padding-right: 3px">
+          <div class="pill" style="transform: translateX({{tabX}}px)"></div>
+          <sc-for list="{{tabs}}" as="t" hint-placeholder-count="4">
+            <button class="{{t.cls}}" onClick="{{t.pick}}">{{t.label}}</button>
+          </sc-for>
+        </nav>
+        <button class="shchip" aria-label="Next tab" onClick="{{nextTab}}"><span>{{glyph.r1}}</span></button>
+      </div>
+      <div style="display: flex; justify-content: flex-end; align-items: center; gap: 6px">
         <button class="surf icon" aria-label="Search" onClick="{{openSearch}}">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-4-4"></path></svg>
         </button>
@@ -205,17 +263,19 @@ button:focus-visible, input:focus-visible { outline: 2px solid #fff; outline-off
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"></path><path d="m7 11 5 5 5-5"></path><path d="M5 20h14"></path></svg>
           <sc-if value="{{hasDownloads}}" hint-placeholder-val="{{ false }}"><span class="badge"></span></sc-if>
         </button>
+        <button class="avbtn" aria-label="Quick menu, {{profile.name}}" onClick="{{openQuick}}"><span class="av" style="background: {{profile.color}}">{{profile.initial}}</span></button>
+        <div class="clock">{{clock}}</div>
       </div>
     </div>
 
     <sc-if value="{{isHome}}" hint-placeholder-val="{{ true }}">
       <div class="page">
-        <div style="position: absolute; left: 44px; top: 252px; width: 420px">
-          <div style="height: 44px">
+        <div style="position: absolute; left: 44px; top: 248px; width: 420px">
+          <div style="height: 50px">
             <sc-for list="{{games}}" as="g" hint-placeholder-count="6">
               <sc-if value="{{g.isFocused}}" hint-placeholder-val="{{ false }}">
                 <div class="infoin">
-                  <h1 style="margin: 0; font-size: 22px; line-height: 28px; font-weight: 700; letter-spacing: -0.3px">{{g.title}}</h1>
+                  <h1 style="margin: 0; font-size: 27px; line-height: 33px; font-weight: 700; letter-spacing: -0.3px">{{g.title}}</h1>
                   <div style="font-size: 12px; line-height: 16px; color: rgba(255, 255, 255, 0.88)">{{g.meta}}</div>
                 </div>
               </sc-if>
@@ -272,14 +332,14 @@ button:focus-visible, input:focus-visible { outline: 2px solid #fff; outline-off
           <div style="font-size: 13px; color: rgba(255, 255, 255, 0.82)">{{storeAccount}}</div>
         </div>
         <sc-if value="{{storeSignedOut}}" hint-placeholder-val="{{ false }}">
-          <div class="surf" style="position: absolute; left: 44px; right: 44px; top: 122px; bottom: 12px; border-radius: 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px">
+          <div class="surf" style="position: absolute; left: 44px; right: 44px; top: 122px; bottom: 44px; border-radius: 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px">
             <div style="font-size: 20px; font-weight: 700">Sign in to {{store}}</div>
             <div style="font-size: 14px; color: rgba(255, 255, 255, 0.8)">Your games and purchases appear here, and Madeira downloads them.</div>
             <button class="primary" onClick="{{openSignIn}}">Sign in</button>
           </div>
         </sc-if>
         <sc-if value="{{storeSignedIn}}" hint-placeholder-val="{{ true }}">
-        <div class="surf scroll" style="position: absolute; left: 44px; right: 44px; top: 122px; bottom: 12px; padding: 4px 16px; border-radius: 24px">
+        <div class="surf scroll" style="position: absolute; left: 44px; right: 44px; top: 122px; bottom: 44px; padding: 4px 16px; border-radius: 24px">
           <sc-for list="{{storeGames}}" as="g" hint-placeholder-count="3">
             <div class="row" style="min-height: 76px">
               <img src="{{g.cover}}" alt="" style="flex: none; width: 42px; height: 62px; object-fit: cover; border-radius: 8px">
@@ -311,16 +371,16 @@ button:focus-visible, input:focus-visible { outline: 2px solid #fff; outline-off
 
     <sc-if value="{{isSettings}}" hint-placeholder-val="{{ false }}">
       <div class="page">
-        <div class="surf scroll" style="position: absolute; left: 44px; top: 62px; bottom: 10px; width: 186px; padding: 5px; border-radius: 22px">
+        <div class="surf scroll" style="position: absolute; left: 44px; top: 62px; bottom: 44px; width: 186px; padding: 5px; border-radius: 22px">
           <sc-for list="{{categories}}" as="c" hint-placeholder-count="7">
             <button class="{{c.cls}}" onClick="{{c.pick}}">{{c.label}}</button>
           </sc-for>
         </div>
-        <div class="surf scroll" style="position: absolute; left: 242px; right: 44px; top: 62px; bottom: 10px; padding: 12px 18px 6px; border-radius: 22px">
+        <div class="surf scroll" style="position: absolute; left: 242px; right: 44px; top: 62px; bottom: 44px; padding: 12px 18px 6px; border-radius: 22px">
           <h2 style="margin: 0 0 2px; font-size: 19px; line-height: 24px; font-weight: 700">{{categoryTitle}}</h2>
           <sc-for list="{{rows}}" as="row" hint-placeholder-count="3">
             <div class="row">
-              <div>
+              <div style="flex: 1; min-width: 0">
                 <div class="rowlabel">{{row.label}}</div>
                 <sc-if value="{{row.detail}}" hint-placeholder-val="{{ false }}"><div class="rowdetail">{{row.detail}}</div></sc-if>
               </div>
@@ -340,6 +400,12 @@ button:focus-visible, input:focus-visible { outline: 2px solid #fff; outline-off
         </div>
       </div>
     </sc-if>
+
+    <div class="hints" aria-hidden="true">
+      <sc-for list="{{hints}}" as="h" hint-placeholder-count="3">
+        <span><span class="glyph" style="color: {{h.color}}">{{h.glyph}}</span>{{h.label}}</span>
+      </sc-for>
+    </div>
 
     <sc-if value="{{hasSheet}}" hint-placeholder-val="{{ false }}">
       <button class="shade" aria-label="Close" onClick="{{closeSheet}}"></button>
@@ -446,6 +512,20 @@ button:focus-visible, input:focus-visible { outline: 2px solid #fff; outline-off
       </div>
     </sc-if>
 
+    <sc-if value="{{isQuick}}" hint-placeholder-val="{{ false }}">
+      <div class="surf sheet" role="dialog" aria-label="Quick menu" style="left: 44px; right: 44px; bottom: 12px; height: 128px; padding: 12px 16px; transform-origin: bottom center">
+        <div style="display: flex; justify-content: space-between; align-items: center; height: 24px">
+          <div style="display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700"><span class="av" style="width: 22px; height: 22px; font-size: 11px; background: {{profile.color}}">{{profile.initial}}</span>{{profile.name}}</div>
+          <div style="font-size: 13px; color: rgba(255, 255, 255, 0.82)">{{dateLabel}} · {{clock}}</div>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-top: 12px">
+          <sc-for list="{{quickTiles}}" as="q" hint-placeholder-count="5">
+            <button class="qtile" onClick="{{q.pick}}"><span class="qlabel">{{q.label}}</span><span class="qvalue">{{q.value}}</span></button>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
     <sc-if value="{{toastOn}}" hint-placeholder-val="{{ false }}">
       <div class="surf toast" role="status">{{toastText}}</div>
     </sc-if>
@@ -523,7 +603,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid #fff; outline-off
         <div class="scroll" style="flex: 1; min-height: 0; margin-top: 4px; padding: 0 4px">
           <sc-for list="{{menuRows}}" as="row" hint-placeholder-count="2">
             <div class="row">
-              <div>
+              <div style="flex: 1; min-width: 0">
                 <div class="rowlabel">{{row.label}}</div>
                 <sc-if value="{{row.detail}}" hint-placeholder-val="{{ false }}"><div class="rowdetail">{{row.detail}}</div></sc-if>
               </div>
@@ -548,10 +628,37 @@ button:focus-visible, input:focus-visible { outline: 2px solid #fff; outline-off
       </div>
     </sc-if>
   </sc-if>
+
+  <sc-if value="{{isWelcome}}" hint-placeholder-val="{{ false }}">
+    <div class="dim on dimin" style="background: rgba(8, 8, 11, 0.58)"></div>
+    <div class="page" style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center">
+      <div style="font-size: 58px; line-height: 62px; font-weight: 300; letter-spacing: -1.5px; font-variant-numeric: tabular-nums">{{clock}}</div>
+      <div style="font-size: 15px; line-height: 20px; color: rgba(255, 255, 255, 0.88)">{{dateLabel}}</div>
+      <div style="margin-top: 26px; font-size: 15px; font-weight: 600">Who's playing?</div>
+      <div style="display: flex; gap: 32px; margin-top: 14px">
+        <sc-for list="{{profiles}}" as="p" hint-placeholder-count="2">
+          <button class="profile" onClick="{{p.pick}}"><span class="av" style="background: {{p.color}}">{{p.initial}}</span>{{p.name}}</button>
+        </sc-for>
+      </div>
+    </div>
+    <div class="hints" aria-hidden="true">
+      <span><span class="glyph" style="color: {{confirmGlyph.color}}">{{confirmGlyph.glyph}}</span>Sign in</span>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{isBoot}}" hint-placeholder-val="{{ false }}">
+    <button class="{{bootCls}}" aria-label="Skip startup" onClick="{{skipBoot}}">
+      <span class="bootglow" aria-hidden="true"></span>
+      <svg class="bootlogo" width="76" height="76" viewBox="0 0 76 76" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect class="draw" x="4" y="4" width="68" height="68" rx="22" pathLength="1"></rect><path class="draw d2" d="M24 52V25l14 16 14-16v27" pathLength="1"></path></svg>
+      <span class="bootword">MADEIRA</span>
+      <span class="bootsub">Windows games on iOS</span>
+      <span class="bootspin" aria-hidden="true"></span>
+    </button>
+  </sc-if>
 </div>
 </x-dc>
 
-<script type="text/x-dc" data-dc-script data-props='{"surface":{"editor":"enum","options":["liquid","frosted","black"],"default":"liquid"},"accent":{"editor":"color","default":"#3B9DFF","options":["#3B9DFF","#30D158","#FF9F0A"]},"$preview":{"width":844,"height":390}}'>
+<script type="text/x-dc" data-dc-script data-props='{"surface":{"editor":"enum","options":["liquid","frosted","black"],"default":"liquid"},"accent":{"editor":"color","default":"#3B9DFF","options":["#3B9DFF","#30D158","#FF9F0A"]},"bootSequence":{"editor":"boolean","default":true},"$preview":{"width":844,"height":390}}'>
 const GAMES = [
   { id: 'ember', title: 'Ember Hollow', genre: 'Action RPG', source: 'Steam', size: '38.4 GB', hero: '/_blob/98dff33c8b97eab685a189bbfa8e6fb9', cover: '/_blob/372398939c49f4872b6ab1eb80f5f82d' },
   { id: 'neon', title: 'Neon Meridian', genre: 'Racing', source: 'Epic', size: '21.7 GB', hero: '/_blob/dd9bee749e61f80bfa636a4100e19770', cover: '/_blob/6c2f07667bc5adc7c3692abfcc9611c9' },
@@ -562,6 +669,8 @@ const GAMES = [
 ];
 const TABS = [['home', 'Home'], ['library', 'Library'], ['store', 'Store'], ['settings', 'Settings']];
 const CATEGORIES = [['account', 'Account'], ['controllers', 'Controllers'], ['performance', 'Performance'], ['appearance', 'Appearance'], ['system', 'JIT & System'], ['storage', 'Storage'], ['about', 'About']];
+const PROFILES = [{ id: 'p1', name: 'Player 1', initial: 'P' }, { id: 'guest', name: 'Guest', initial: 'G', color: '#5E5CE6' }];
+const PERF_MODES = ['Lite', 'Balanced', 'Overclock'];
 const PERF_DETAIL = {
   Lite: 'Uses the least memory. Best for devices with little RAM.',
   Balanced: 'Your saved settings. The right choice for most games.',
@@ -572,7 +681,7 @@ class Component extends DCLogic {
   constructor(...args) {
     super(...args);
     this.state = {
-      tab: 'home', focus: 'ember', sheet: null, screen: 'shell', launchPct: 0, running: null,
+      tab: 'home', focus: 'ember', sheet: null, screen: this.props.bootSequence === false ? 'shell' : 'boot', launchPct: 0, running: null, profile: 'p1',
       menuOpen: false, menuTab: 'controls', category: 'performance', filter: 'All', store: 'Steam', query: '',
       installed: { ember: true, neon: true, glacier: true, verdant: true }, dl: {},
       surfacePick: null, opening: null, buyId: null, toast: null,
@@ -582,8 +691,60 @@ class Component extends DCLogic {
     };
   }
 
-  componentDidMount() { this.timer = setInterval(() => this.tick(), 120); }
-  componentWillUnmount() { clearInterval(this.timer); clearTimeout(this.openTimer); clearTimeout(this.toastTimer); }
+  componentDidMount() {
+    this.timer = setInterval(() => this.tick(), 120);
+    this.clockTimer = setInterval(() => this.forceUpdate(), 15000);
+    if (this.state.screen === 'boot') this.boot();
+  }
+  componentWillUnmount() { clearInterval(this.timer); clearInterval(this.clockTimer); clearTimeout(this.openTimer); clearTimeout(this.toastTimer); clearTimeout(this.bootTimer); clearTimeout(this.bootOutTimer); }
+
+  // Startup: the wordmark glows in, then the profile picker.
+  boot() {
+    clearTimeout(this.bootTimer); clearTimeout(this.bootOutTimer);
+    this.setState({ screen: 'boot', bootOut: false, sheet: null, menuOpen: false, running: null });
+    this.bootOutTimer = setTimeout(() => this.setState({ bootOut: true }), 2300);
+    this.bootTimer = setTimeout(() => this.setState({ screen: 'welcome', bootOut: false }), 2800);
+  }
+  skipBoot() { clearTimeout(this.bootTimer); clearTimeout(this.bootOutTimer); this.setState({ screen: 'welcome', bootOut: false }); }
+  signIn(id) { this.setState({ profile: id, screen: 'shell', tab: 'home', sheet: null }); }
+
+  stepTab(dir) {
+    const i = TABS.findIndex(([id]) => id === this.state.tab);
+    this.setState({ tab: TABS[(i + dir + TABS.length) % TABS.length][0], prevFocus: null, sheet: null });
+  }
+
+  // Keyboard stands in for the pad: arrows = d-pad, Enter = confirm, Esc = back, Q/E = L1/R1, M = quick menu.
+  key(e) {
+    const s = this.state;
+    const k = e.key;
+    const onRoot = e.target === e.currentTarget;
+    const typing = e.target && e.target.tagName === 'INPUT';
+    if (typing && k !== 'Escape') return;
+    if (s.screen === 'boot') { this.skipBoot(); return; }
+    if (s.screen === 'welcome') { if (onRoot && (k === 'Enter' || k === ' ')) this.signIn(s.profile); return; }
+    if (s.screen === 'game') { if (k === 'Escape' || k === 'm') this.setState({ menuOpen: !s.menuOpen }); return; }
+    if (s.screen !== 'shell') return;
+    if (s.sheet) { if (k === 'Escape') this.setState({ sheet: null }); return; }
+    if (k === 'q' || k === 'Q') { this.stepTab(-1); return; }
+    if (k === 'e' || k === 'E') { this.stepTab(1); return; }
+    if (k === 'm' || k === 'M') { this.setState({ sheet: 'quick' }); return; }
+    if (k === 'Escape' && s.tab !== 'home') { this.setState({ tab: 'home', prevFocus: null }); return; }
+    if (s.tab === 'settings' && (k === 'ArrowUp' || k === 'ArrowDown')) {
+      e.preventDefault();
+      const ci = CATEGORIES.findIndex(([id]) => id === s.category);
+      const n = Math.max(0, Math.min(CATEGORIES.length - 1, ci + (k === 'ArrowDown' ? 1 : -1)));
+      this.setState({ category: CATEGORIES[n][0] });
+      return;
+    }
+    if (s.tab !== 'home') return;
+    const i = GAMES.findIndex((g) => g.id === s.focus);
+    if (k === 'ArrowLeft' || k === 'ArrowRight') {
+      e.preventDefault();
+      const n = Math.max(0, Math.min(GAMES.length - 1, i + (k === 'ArrowRight' ? 1 : -1)));
+      if (n !== i) this.setState({ focus: GAMES[n].id, prevFocus: s.focus });
+    } else if (onRoot && (k === 'Enter' || k === ' ')) { e.preventDefault(); this.play(s.focus); }
+    else if (k === 't' || k === 'T') this.setState({ sheet: 'details' });
+  }
 
   toast(text) {
     this.setState({ toast: text });
@@ -741,9 +902,37 @@ class Component extends DCLogic {
     const downloadGames = games.filter((g) => g.isDownloading);
     const launchStatus = s.launchPct < 35 ? 'Preparing JIT' : s.launchPct < 70 ? 'Starting Windows session' : 'Loading game';
 
+    const accent = this.props.accent ?? '#3B9DFF';
+    const profiles = PROFILES.map((p) => ({ ...p, color: p.color || accent, pick: () => this.signIn(p.id) }));
+    const profile = profiles.find((p) => p.id === s.profile) || profiles[0];
+    const now = new Date();
+    const clock = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const dateLabel = now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
+    const confirmGlyph = ps ? { glyph: '✕', color: '#8DB4FF' } : { glyph: 'A', color: '#74E06B' };
+    const backGlyph = ps ? { glyph: '○', color: '#FF7A7A' } : { glyph: 'B', color: '#FF6B66' };
+    const optGlyph = ps ? { glyph: '△', color: '#6EE7C0' } : { glyph: 'Y', color: '#FFD84D' };
+    const menuGlyph = { glyph: '≡', color: '#fff' };
+    let hints;
+    if (s.tab === 'home') hints = [{ ...confirmGlyph, label: playLabel }, { ...optGlyph, label: 'Details' }, { ...menuGlyph, label: 'Quick menu' }];
+    else if (s.tab === 'library') hints = [{ ...confirmGlyph, label: 'Open' }, { ...backGlyph, label: 'Home' }, { ...menuGlyph, label: 'Quick menu' }];
+    else hints = [{ ...confirmGlyph, label: 'Select' }, { ...backGlyph, label: 'Home' }, { ...menuGlyph, label: 'Quick menu' }];
+    const perf = s.prefs.perf;
+    const quickTiles = [
+      { label: 'User', value: 'Switch user', pick: () => this.setState({ screen: 'welcome', sheet: null }) },
+      { label: 'Downloads', value: downloadGames.length ? downloadGames.length + ' active' : 'None', pick: () => this.setState({ sheet: 'downloads' }) },
+      { label: 'Controller', value: (s.prefs.pad === 'Auto' ? 'DualSense' : s.prefs.pad) + ' · 82%', pick: () => this.setState({ sheet: null, tab: 'settings', category: 'controllers' }) },
+      { label: 'Performance', value: perf, pick: () => this.pref('perf', PERF_MODES[(PERF_MODES.indexOf(perf) + 1) % PERF_MODES.length]) },
+      { label: 'Power', value: 'Restart Madeira', pick: () => this.boot() }
+    ];
+
     return {
-      surfaceCls: 's-' + this.surface(),
-      accent: this.props.accent ?? '#3B9DFF',
+      surfaceCls: 's-' + this.surface() + ' osroot',
+      accent,
+      onKey: (e) => this.key(e),
+      isBoot: s.screen === 'boot', bootCls: s.bootOut ? 'boot out' : 'boot', isWelcome: s.screen === 'welcome', skipBoot: () => this.skipBoot(),
+      profiles, profile, clock, dateLabel, confirmGlyph, hints, quickTiles,
+      isQuick: s.sheet === 'quick', openQuick: () => this.setState({ sheet: 'quick' }),
+      prevTab: () => this.stepTab(-1), nextTab: () => this.stepTab(1),
       games, focused, playLabel, playTap, glyph, faceButtons, buyGame,
       isBuy: s.sheet === 'buy', isSignIn: s.sheet === 'signin',
       buyLabel: buyGame.price === 'Free' ? 'Add to library' : 'Buy for ' + buyGame.price,

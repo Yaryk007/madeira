@@ -68,33 +68,38 @@ enum GlassPadFamily: Equatable {
 
 enum GlassPadButton { case accept, back, action, add, tabLeft, tabRight, menu }
 
-/// One button's icon in the active pad's style.
+/// One button's icon in the active pad's style. 22 points in the hint bar, as in the prototype.
 struct GlassGlyph: View {
     let button: GlassPadButton
+    var size: CGFloat = 18
     @ObservedObject private var pads = GlassPads.shared
+
+    private var fill: Color { .white.opacity(size >= 22 ? 0.16 : 0.22) }
 
     var body: some View {
         switch button {
         case .tabLeft: shoulder(pads.family == .playStation ? "L1" : "LB")
         case .tabRight: shoulder(pads.family == .playStation ? "R1" : "RB")
-        case .menu: shoulder(pads.family == .playStation ? "Options" : "Menu")
+        case .menu:
+            Image(systemName: "line.3.horizontal").font(.system(size: size * 0.5, weight: .bold)).foregroundStyle(.white)
+                .frame(width: size, height: size).background(fill, in: Circle())
         default: face
         }
     }
 
     private func shoulder(_ text: String) -> some View {
-        Text(text).font(.system(size: 10, weight: .bold)).padding(.horizontal, 5).frame(height: 18)
-            .background(.white.opacity(0.22), in: RoundedRectangle(cornerRadius: 5))
+        Text(text).font(.system(size: size * 0.55, weight: .bold)).padding(.horizontal, 5).frame(height: size)
+            .background(fill, in: RoundedRectangle(cornerRadius: size * 0.3))
     }
 
     @ViewBuilder private var face: some View {
         if pads.family == .playStation {
-            Image(systemName: psSymbol).font(.system(size: 9, weight: .heavy)).foregroundStyle(psColor)
-                .frame(width: 18, height: 18).background(.white.opacity(0.22), in: Circle())
+            Image(systemName: psSymbol).font(.system(size: size * 0.5, weight: .heavy)).foregroundStyle(psColor)
+                .frame(width: size, height: size).background(fill, in: Circle())
         } else {
-            Text(letter).font(.system(size: 11, weight: .heavy))
-                .foregroundStyle(pads.family == .xbox ? xboxColor : .white)
-                .frame(width: 18, height: 18).background(.white.opacity(0.22), in: Circle())
+            Text(letter).font(.system(size: size * 0.6, weight: .heavy))
+                .foregroundStyle(xboxColor)
+                .frame(width: size, height: size).background(fill, in: Circle())
         }
     }
 
@@ -108,10 +113,10 @@ struct GlassGlyph: View {
     }
     private var psColor: Color {
         switch button {
-        case .accept: return Color(red: 0.55, green: 0.7, blue: 1)
-        case .back: return Color(red: 1, green: 0.5, blue: 0.5)
-        case .action: return Color(red: 1, green: 0.6, blue: 0.85)
-        default: return Color(red: 0.45, green: 0.9, blue: 0.75)
+        case .accept: return Color(red: 0x8D / 255, green: 0xB4 / 255, blue: 1)        // #8DB4FF
+        case .back: return Color(red: 1, green: 0x7A / 255, blue: 0x7A / 255)          // #FF7A7A
+        case .action: return Color(red: 0xF5 / 255, green: 0x9A / 255, blue: 0xD8 / 255) // #F59AD8
+        default: return Color(red: 0x6E / 255, green: 0xE7 / 255, blue: 0xC0 / 255)     // #6EE7C0
         }
     }
     private var letter: String {
@@ -124,10 +129,10 @@ struct GlassGlyph: View {
     }
     private var xboxColor: Color {
         switch button {
-        case .accept: return Color(red: 0.45, green: 0.9, blue: 0.4)
-        case .back: return Color(red: 1, green: 0.42, blue: 0.4)
-        case .action: return Color(red: 0.45, green: 0.65, blue: 1)
-        default: return Color(red: 1, green: 0.85, blue: 0.3)
+        case .accept: return Color(red: 0x74 / 255, green: 0xE0 / 255, blue: 0x6B / 255) // #74E06B
+        case .back: return Color(red: 1, green: 0x6B / 255, blue: 0x66 / 255)            // #FF6B66
+        case .action: return Color(red: 0x6F / 255, green: 0xA8 / 255, blue: 1)          // #6FA8FF
+        default: return Color(red: 1, green: 0xD8 / 255, blue: 0x4D / 255)               // #FFD84D
         }
     }
 }
