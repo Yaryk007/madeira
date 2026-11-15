@@ -15,7 +15,7 @@ import Security
 // name or account id.
 
 /// The signed-in account, as stored in the Keychain.
-struct EASession: Codable, Sendable {
+struct EASession: Codable, Sendable, Equatable {
     var userID: String
     var personaID: String
     var displayName: String
@@ -26,6 +26,7 @@ struct EASession: Codable, Sendable {
 
 enum EAAPIError: LocalizedError, Equatable {
     case signedOut
+    case keychain
     case http(Int)
     case graphQL(String)
     case invalid(String)
@@ -36,6 +37,7 @@ enum EAAPIError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .signedOut: return "Sign in to EA to continue."
+        case .keychain: return "EA accepted the sign-in, but Madeira could not save it in this device's Keychain. Unlock the device and try again."
         case .http(let status):
             if status == 401 || status == 403 { return "EA refused the request (HTTP \(status)). Sign in again in Settings › EA app." }
             return "EA's server answered with HTTP \(status). Try again later."
@@ -51,6 +53,7 @@ enum EAAPIError: LocalizedError, Equatable {
     var reason: String {
         switch self {
         case .signedOut: return "signed-out"
+        case .keychain: return "keychain"
         case .http(let status): return "http-\(status)"
         case .graphQL: return "graphql"
         case .invalid(let what): return "invalid-\(what)"
@@ -187,10 +190,15 @@ final class EAAPI: @unchecked Sendable {
         return session
     }
 
-    private func store(_ session: EASession?) {
+    @discardableResult private func store(_ session: EASession?) -> Bool {
         lock.lock(); defer { lock.unlock() }
+        if let session {
+            guard EATokenStore.save(session), EATokenStore.load() == session else { return false }
+        } else {
+            EATokenStore.delete()
+        }
         self.session = session; loaded = true
-        if let session { EATokenStore.save(session) } else { EATokenStore.delete() }
+        return true
     }
 
     /// The stored account, if any, without contacting EA.
@@ -247,11 +255,12 @@ final class EAAPI: @unchecked Sendable {
         let info = try await tokenInfo(session.accessToken)
         session.userID = info.userID
         session.personaID = info.personaID ?? ""
-        store(session)
+        guard store(session) else { throw EAAPIError.keychain }
         if let player = try? await player() {
+            let saved = session
             session.displayName = player.displayName
             if session.personaID.isEmpty { session.personaID = player.personaID }
-            store(session)
+            if !store(session) { session = saved }
         }
         EALog.event("[ea-signin] signed in")
         return session
@@ -272,7 +281,7 @@ final class EAAPI: @unchecked Sendable {
         let task = Task { () throws -> EASession in
             let json = try await self.token(["grant_type": "refresh_token", "refresh_token": current.refreshToken], method: "oauth-refresh")
             let session = try Self.session(from: json, previous: current)
-            self.store(session)
+            guard self.store(session) else { throw EAAPIError.keychain }
             return session
         }
         refreshing = task

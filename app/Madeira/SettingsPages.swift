@@ -138,6 +138,7 @@ struct SettingsPageView: View {
     @AppStorage(LibraryGridArm.key) private var zoomableGrid = false
     @AppStorage(GridZoomHapticPlayer.key) private var zoomHaptics = true
     @AppStorage(TouchControlStyle.key) private var controlStyle = "glass"
+    @AppStorage(GlassUI.key) private var glassInterface = GlassUI.enabled
     @State private var developerUI = !FrontendChoice.preferNew
     @State private var restartNotice = false
 
@@ -220,11 +221,14 @@ struct SettingsPageView: View {
             Text("Pinch the library's cards to change how many fit across. Off, the cards use the original grid. Zoom haptics click as the pinch crosses a size.")
         }
         Section {
+            Toggle("Madeira Glass interface", isOn: Binding(get: { glassInterface }, set: { on in
+                glassInterface = on; restartNotice = true
+            }))
             Toggle("Use developer interface", isOn: Binding(get: { developerUI }, set: { on in
                 developerUI = on; FrontendChoice.choose(new: !on); restartNotice = true
             }))
         } header: { Text("Interface") } footer: {
-            Text("The developer interface is Madeira's original diagnostic screen. The change applies after Madeira restarts.")
+            Text("Madeira Glass is the console-style home. The developer interface is Madeira's original diagnostic screen. Changes apply after Madeira restarts.")
         }
     }
 }

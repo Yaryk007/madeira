@@ -14,7 +14,7 @@ import Security
 // methods and Epic error codes only, never a token, code, name or account id.
 
 /// The signed-in account, as stored in the Keychain.
-struct EpicSession: Codable, Sendable {
+struct EpicSession: Codable, Sendable, Equatable {
     var accountID: String
     var displayName: String
     var accessToken: String
@@ -25,6 +25,7 @@ struct EpicSession: Codable, Sendable {
 
 enum EpicAPIError: LocalizedError, Equatable {
     case signedOut
+    case keychain
     case epic(code: String, message: String)
     case http(Int)
     case invalid(String)
@@ -33,6 +34,7 @@ enum EpicAPIError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .signedOut: return "Sign in to Epic Games to continue."
+        case .keychain: return "Epic accepted the sign-in, but Madeira could not save it in this device's Keychain. Unlock the device and try again."
         case .epic(let code, let message):
             if code.hasSuffix("invalid_grant") || code.hasSuffix("authorization_code_not_found") {
                 return "Epic did not accept this sign-in code. Codes work once and expire after a few minutes: sign in again."
@@ -51,6 +53,7 @@ enum EpicAPIError: LocalizedError, Equatable {
     var reason: String {
         switch self {
         case .signedOut: return "signed-out"
+        case .keychain: return "keychain"
         case .epic(let code, _): return code.split(separator: ".").suffix(2).joined(separator: ".")
         case .http(let status): return "http-\(status)"
         case .invalid(let what): return "invalid-\(what)"
@@ -102,7 +105,11 @@ enum EpicTokenStore {
 
     @discardableResult static func save(_ session: EpicSession) -> Bool {
         guard let data = try? JSONEncoder().encode(session) else { return false }
-        delete()
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
+                                    kSecAttrAccount as String: account]
+        let updated = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        if updated == errSecSuccess { return true }
+        guard updated == errSecItemNotFound else { return false }
         let item: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
                                    kSecAttrAccount as String: account, kSecValueData as String: data,
                                    kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
@@ -252,8 +259,8 @@ actor EpicAPI {
                                   accessToken: access, accessExpires: now.addingTimeInterval(Self.seconds(json["expires_in"]) ?? 3600),
                                   refreshToken: refresh,
                                   refreshExpires: now.addingTimeInterval(Self.seconds(json["refresh_expires"]) ?? 8 * 3600))
+        guard EpicTokenStore.save(session), EpicTokenStore.load() == session else { throw EpicAPIError.keychain }
         self.session = session; loaded = true
-        EpicTokenStore.save(session)
         return session
     }
 

@@ -3343,6 +3343,9 @@ struct LibraryView: View {
     // The interface the next start uses (FrontendChoice).
     @State private var developerUI = !FrontendChoice.preferNew
     @State private var restartNotice = false
+    /// The console-style Madeira Glass home. ContentView chooses the root front end,
+    /// so changing this setting takes effect after the app is restarted.
+    @AppStorage(GlassUI.key) private var glassInterface = GlassUI.enabled
     @State private var settingsSheet: SettingsSheet?
     @State private var settingsRefresh = 0
     @AppStorage("madeiraLibraryLayout") private var layout = "cards"
@@ -3594,13 +3597,16 @@ struct LibraryView: View {
                     Text("Pinch the library's cards to change how many fit across. Off, the cards use the original grid. Zoom haptics click as the pinch crosses a size.")
                 }
             }
-            if settingsShow("interface", "developer") {
+            if settingsShow("interface", "developer", "Glass", "console") {
                 Section {
+                    Toggle("Madeira Glass interface", isOn: Binding(get: { glassInterface }, set: { on in
+                        glassInterface = on; restartNotice = true
+                    }))
                     Toggle("Use developer interface", isOn: Binding(get: { developerUI }, set: { on in
                         developerUI = on; FrontendChoice.choose(new: !on); restartNotice = true
                     }))
                 } header: { Text("Interface") } footer: {
-                    Text("The developer interface is Madeira's original diagnostic screen. The change applies after Madeira restarts.")
+                    Text("Madeira Glass is the console-style home. The developer interface is Madeira's original diagnostic screen. Changes apply after Madeira restarts.")
                 }
             }
             // Search: the matching options of All settings, editable here.

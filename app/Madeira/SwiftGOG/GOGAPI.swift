@@ -13,7 +13,7 @@ import Security
 // methods and HTTP statuses only, never a token, code, name or account id.
 
 /// The signed-in account, as stored in the Keychain.
-struct GOGSession: Codable, Sendable {
+struct GOGSession: Codable, Sendable, Equatable {
     var userID: String
     var userName: String
     var accessToken: String
@@ -23,6 +23,7 @@ struct GOGSession: Codable, Sendable {
 
 enum GOGAPIError: LocalizedError, Equatable {
     case signedOut
+    case keychain
     case http(Int)
     case invalid(String)
     case noWindowsBuild
@@ -32,6 +33,7 @@ enum GOGAPIError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .signedOut: return "Sign in to GOG to continue."
+        case .keychain: return "GOG accepted the sign-in, but Madeira could not save it in this device's Keychain. Unlock the device and try again."
         case .http(let status):
             if status == 401 || status == 403 { return "GOG refused the request (HTTP \(status)). Sign in again in Settings › GOG." }
             return "GOG's server answered with HTTP \(status). Try again later."
@@ -46,6 +48,7 @@ enum GOGAPIError: LocalizedError, Equatable {
     var reason: String {
         switch self {
         case .signedOut: return "signed-out"
+        case .keychain: return "keychain"
         case .http(let status): return "http-\(status)"
         case .invalid(let what): return "invalid-\(what)"
         case .noWindowsBuild: return "no-windows-build"
@@ -143,7 +146,11 @@ enum GOGTokenStore {
 
     @discardableResult static func save(_ session: GOGSession) -> Bool {
         guard let data = try? JSONEncoder().encode(session) else { return false }
-        delete()
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
+                                    kSecAttrAccount as String: account]
+        let updated = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+        if updated == errSecSuccess { return true }
+        guard updated == errSecItemNotFound else { return false }
         let item: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
                                    kSecAttrAccount as String: account, kSecValueData as String: data,
                                    kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
@@ -232,8 +239,13 @@ actor GOGAPI {
         if let data = try? await send(try await authorized(URL(string: Self.embedHost + "/userData.json")!), method: "user-data"),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let name = json["username"] as? String {
             session.userName = name
-            self.session = session
-            GOGTokenStore.save(session)
+            if GOGTokenStore.save(session), GOGTokenStore.load() == session {
+                self.session = session
+            } else {
+                // The token itself was already confirmed in token(). A display-name
+                // update must not turn a durable sign-in into a failed sign-in.
+                session.userName = ""
+            }
         }
         GOGLog.event("[gog-signin] signed in")
         return session
@@ -274,8 +286,8 @@ actor GOGAPI {
         let session = GOGSession(userID: user, userName: userName, accessToken: access,
                                  accessExpires: Date().addingTimeInterval((json["expires_in"] as? NSNumber)?.doubleValue ?? 3600),
                                  refreshToken: refresh)
+        guard GOGTokenStore.save(session), GOGTokenStore.load() == session else { throw GOGAPIError.keychain }
         self.session = session; loaded = true
-        GOGTokenStore.save(session)
         return session
     }
 
